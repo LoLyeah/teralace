@@ -5,6 +5,7 @@ import {
   Image,
   FileArchive,
   Check,
+  Play,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import type { TeraboxFileInfo } from "../lib/types";
@@ -14,16 +15,18 @@ interface FileListProps {
   files: TeraboxFileInfo[];
   selectedFiles: Set<string>;
   onSelectionChange: (selected: Set<string>) => void;
+  onPreview?: (file: TeraboxFileInfo) => void;
 }
 
 export function FileList({
   files,
   selectedFiles,
   onSelectionChange,
+  onPreview,
 }: FileListProps) {
   if (files.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
+      <div className="text-center py-8 text-muted-foreground text-xs">
         No files found
       </div>
     );
@@ -37,6 +40,7 @@ export function FileList({
           file={file}
           selectedFiles={selectedFiles}
           onSelectionChange={onSelectionChange}
+          onPreview={onPreview}
         />
       ))}
     </div>
@@ -47,12 +51,14 @@ interface FileItemProps {
   file: TeraboxFileInfo;
   selectedFiles: Set<string>;
   onSelectionChange: (selected: Set<string>) => void;
+  onPreview?: (file: TeraboxFileInfo) => void;
 }
 
 function FileItem({
   file,
   selectedFiles,
   onSelectionChange,
+  onPreview,
 }: FileItemProps) {
   const isSelected = selectedFiles.has(file.fs_id);
 
@@ -67,48 +73,64 @@ function FileItem({
   };
 
   const getFileIcon = () => {
-    if (file.is_dir) return <Folder className="h-4 w-4 text-yellow-500" />;
+    if (file.is_dir) return <Folder className="h-4 w-4 text-yellow-500 shrink-0" />;
 
     switch (file.file_type) {
       case "video":
-        return <Video className="h-4 w-4 text-blue-500" />;
+        return <Video className="h-4 w-4 text-blue-500 shrink-0" />;
       case "image":
-        return <Image className="h-4 w-4 text-green-500" />;
+        return <Image className="h-4 w-4 text-green-500 shrink-0" />;
       case "file":
-        return <FileArchive className="h-4 w-4 text-purple-500" />;
+      case "archive":
+        return <FileArchive className="h-4 w-4 text-purple-500 shrink-0" />;
       default:
-        return <File className="h-4 w-4 text-gray-500" />;
+        return <File className="h-4 w-4 text-gray-500 shrink-0" />;
     }
   };
+
+  const hasStreamPreview = file.file_type === "video" && file.direct_link && onPreview;
 
   return (
     <div
       className={cn(
-        "flex items-center gap-2 py-2 px-3 rounded-md hover:bg-accent cursor-pointer transition-colors",
+        "flex items-center gap-2 py-1.5 px-2.5 rounded-lg hover:bg-accent/60 transition-colors text-xs group",
         isSelected && "bg-accent"
       )}
     >
       <button
         onClick={toggleSelection}
         className={cn(
-          "flex items-center justify-center w-5 h-5 rounded border-2 transition-colors",
+          "flex items-center justify-center w-4 h-4 rounded border transition-colors shrink-0",
           isSelected
             ? "bg-primary border-primary text-primary-foreground"
-            : "border-muted-foreground/50 hover:border-primary"
+            : "border-muted-foreground/40 hover:border-primary"
         )}
       >
-        {isSelected && <Check className="h-3 w-3" />}
+        {isSelected && <Check className="h-2.5 w-2.5" />}
       </button>
 
-      <div className="flex items-center gap-2 flex-1" onClick={toggleSelection}>
+      <div className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer" onClick={toggleSelection}>
         {getFileIcon()}
         <span className="flex-1 truncate">{file.name}</span>
         {!file.is_dir && file.size && (
-          <span className="text-sm text-muted-foreground">
+          <span className="text-[11px] text-muted-foreground shrink-0 font-mono">
             {formatBytes(file.size)}
           </span>
         )}
       </div>
+
+      {hasStreamPreview && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onPreview(file);
+          }}
+          className="p-1 hover:bg-primary/10 hover:text-primary rounded text-muted-foreground transition-colors shrink-0"
+          title="Preview video stream"
+        >
+          <Play className="h-3.5 w-3.5 fill-current" />
+        </button>
+      )}
     </div>
   );
 }
@@ -133,10 +155,10 @@ export function SelectAllButton({
     <button
       onClick={toggleSelectAll}
       className={cn(
-        "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors",
+        "flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors",
         allSelected
           ? "bg-primary text-primary-foreground"
-          : "bg-muted hover:bg-muted/80"
+          : "bg-muted/70 hover:bg-muted text-muted-foreground"
       )}
     >
       {allSelected ? "Deselect All" : "Select All"}

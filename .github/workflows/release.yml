@@ -82,10 +82,14 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm install
 
-      - name: Initialize Android Target if needed
+      - name: Initialize Android Target & Inject Permissions
         run: |
           if [ ! -d "src-tauri/gen/android" ]; then
             npx tauri android init
+          fi
+          MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' "$MANIFEST"
           fi
 
       - name: Build Android Release APK

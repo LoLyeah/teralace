@@ -33,6 +33,10 @@ export async function saveApiEndpoints(
   return invoke<void>("save_api_endpoints", { endpoints });
 }
 
+export async function openDownloadDir(path?: string): Promise<void> {
+  return invoke<void>("open_download_dir", { path });
+}
+
 export async function startAria2(): Promise<void> {
   return invoke<void>("start_aria2");
 }

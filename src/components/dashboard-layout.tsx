@@ -14,11 +14,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { FileList, SelectAllButton } from "./file-list";
 import { 
   getTeraboxInfo, formatBytes, stopAria2, setBandwidthLimit, 
-  getBandwidthLimit, getEndpointStats, saveApiEndpoints 
+  getBandwidthLimit, getEndpointStats, saveApiEndpoints, openDownloadDir 
 } from "../lib/api";
 import { loadSettings, saveSettings, DEFAULT_ENDPOINTS } from "../lib/settings";
 import { 
-  TeraboxInfo, BANDWIDTH_PRESETS, 
+  TeraboxInfo, TeraboxFileInfo, BANDWIDTH_PRESETS, 
   ApiEndpointConfig, EndpointHealthInfo 
 } from "../lib/types";
 import { useDownloadQueue, QueueItem } from "../hooks/use-download-queue";
@@ -37,6 +37,10 @@ export function DashboardLayout() {
   const [mobileTab, setMobileTab] = useState<'source' | 'queue'>('source');
   const [maxOverallLimit, setMaxOverallLimit] = useState(0);
   const [maxDownloadLimit, setMaxDownloadLimit] = useState(0);
+
+  // Video Preview Modal
+  const [previewMediaUrl, setPreviewMediaUrl] = useState<string | null>(null);
+  const [previewMediaName, setPreviewMediaName] = useState<string | null>(null);
 
   // API Pool & Session Settings (abdul97233 engine)
   const [apiEndpoints, setApiEndpoints] = useState<ApiEndpointConfig[]>(DEFAULT_ENDPOINTS);
@@ -249,7 +253,14 @@ export function DashboardLayout() {
     
     startQueue();
     setSelectedFiles(new Set());
-    setMobileTab('queue'); // Switch to queue on mobile upon adding
+    setMobileTab('queue');
+  };
+
+  const handlePreviewFile = (file: TeraboxFileInfo) => {
+    if (file.direct_link) {
+      setPreviewMediaUrl(file.direct_link);
+      setPreviewMediaName(file.name);
+    }
   };
 
   const healthyCount = endpointStats.filter(e => e.healthy).length;
@@ -283,6 +294,14 @@ export function DashboardLayout() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => openDownloadDir(downloadDir || undefined)} 
+            title="Open Download Folder"
+          >
+            <FolderOpen className="h-5 w-5 text-muted-foreground hover:text-foreground" />
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings">
             <Settings className="h-5 w-5" />
           </Button>
@@ -377,6 +396,7 @@ export function DashboardLayout() {
                   files={teraboxInfo.list} 
                   selectedFiles={selectedFiles} 
                   onSelectionChange={setSelectedFiles} 
+                  onPreview={handlePreviewFile}
                 />
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50 p-6 text-center">
@@ -454,6 +474,13 @@ export function DashboardLayout() {
                       item={item} 
                       isActive={item.status === 'downloading' || item.status === 'fetching_link'}
                       onRemove={() => removeFromQueue(item.id)}
+                      onOpenFolder={() => openDownloadDir(item.downloadDir || undefined)}
+                      onPreview={() => {
+                        if (item.params.direct_link) {
+                          setPreviewMediaUrl(item.params.direct_link);
+                          setPreviewMediaName(item.file.name);
+                        }
+                      }}
                     />
                   ))}
                 </div>
@@ -471,6 +498,28 @@ export function DashboardLayout() {
         </div>
 
       </main>
+
+      {/* Video Stream Preview Modal */}
+      {previewMediaUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="bg-background border rounded-xl overflow-hidden w-full max-w-[800px] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-3 px-4 border-b bg-card">
+              <span className="font-medium text-xs truncate max-w-[600px]">{previewMediaName}</span>
+              <Button variant="ghost" size="icon" onClick={() => setPreviewMediaUrl(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="bg-black flex items-center justify-center min-h-[300px] max-h-[70vh]">
+              <video 
+                src={previewMediaUrl} 
+                controls 
+                autoPlay 
+                className="max-h-[70vh] w-full"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Settings Modal */}
       {showSettings && (
@@ -734,12 +783,26 @@ export function DashboardLayout() {
   );
 }
 
-function QueueItemRow({ item, isActive, onRemove }: { item: QueueItem, isActive: boolean, onRemove: () => void }) {
+function QueueItemRow({ 
+  item, 
+  isActive, 
+  onRemove,
+  onOpenFolder,
+  onPreview
+}: { 
+  item: QueueItem, 
+  isActive: boolean, 
+  onRemove: () => void,
+  onOpenFolder?: () => void,
+  onPreview?: () => void
+}) {
+  const isVideo = item.file.file_type === 'video';
+
   return (
     <div className={cn(
       "p-3 md:p-4 flex items-center gap-3 transition-colors group",
       isActive ? "bg-primary/5" : "hover:bg-accent/40",
-      item.status === 'completed' && "opacity-75 bg-muted/20"
+      item.status === 'completed' && "opacity-85 bg-muted/20"
     )}>
       <div className={cn(
         "w-1.5 h-10 rounded-full shrink-0",
@@ -751,10 +814,41 @@ function QueueItemRow({ item, isActive, onRemove }: { item: QueueItem, isActive:
       <div className="flex-1 min-w-0">
         <div className="flex justify-between items-center mb-1">
           <span className="font-medium text-xs md:text-sm truncate pr-2">{item.file.name}</span>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[11px] font-mono text-muted-foreground">
+          <div className="flex items-center gap-1.5 shrink-0">
+            {item.status === 'completed' && onOpenFolder && (
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-6 w-6 text-muted-foreground hover:text-primary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenFolder();
+                }}
+                title="Open Folder"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+              </Button>
+            )}
+
+            {isVideo && item.params.direct_link && onPreview && (
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-6 w-6 text-muted-foreground hover:text-primary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPreview();
+                }}
+                title="Preview Video"
+              >
+                <Play className="h-3.5 w-3.5" />
+              </Button>
+            )}
+
+            <span className="text-[11px] font-mono text-muted-foreground ml-1">
               {getStatusText(item)}
             </span>
+
             {item.status !== 'completed' && (
               <Button 
                 variant="ghost" 

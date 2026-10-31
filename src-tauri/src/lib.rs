@@ -12,6 +12,13 @@ use terabox::{
     ApiEndpointConfig, DownloadLink, DownloadParams, EndpointHealthInfo, TeraboxApi, TeraboxInfo,
 };
 
+#[cfg(desktop)]
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager,
+};
+
 static DOWNLOAD_MANAGER: LazyLock<DownloadManager> = LazyLock::new(DownloadManager::new);
 static TERABOX_API: LazyLock<TeraboxApi> = LazyLock::new(|| {
     let default_settings = AppSettings::default();
@@ -38,7 +45,6 @@ fn save_settings(handle: &tauri::AppHandle, settings: &AppSettings) -> Result<()
 #[tauri::command]
 async fn get_terabox_info(handle: tauri::AppHandle, url: String) -> Result<TeraboxInfo, String> {
     let settings = get_settings(&handle);
-    // Update API load balancer with latest endpoints from settings
     TERABOX_API
         .balancer
         .update_endpoints(&settings.api_endpoints)
@@ -135,6 +141,50 @@ async fn resume_all_downloads() -> Result<String, String> {
     Ok("ok".to_string())
 }
 
+#[tauri::command]
+async fn open_download_dir(handle: tauri::AppHandle, path: Option<String>) -> Result<(), String> {
+    let target = if let Some(p) = path {
+        p
+    } else {
+        let settings = get_settings(&handle);
+        if !settings.download_dir.is_empty() {
+            settings.download_dir
+        } else {
+            DOWNLOAD_MANAGER
+                .get_default_dir()
+                .await
+                .to_string_lossy()
+                .to_string()
+        }
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&target)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&target)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&target)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    Ok(())
+}
+
 // Backward compatibility stubs for UI
 #[tauri::command]
 async fn start_aria2() -> Result<(), String> {
@@ -199,14 +249,77 @@ async fn save_app_settings(
     Ok(())
 }
 
+#[cfg(desktop)]
+fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let show_i = MenuItem::with_id(app, "show", "Show TeraLace", true, None::<&str>)?;
+    let hide_i = MenuItem::with_id(app, "hide", "Hide to Tray", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "quit", "Quit TeraLace", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_i, &hide_i, &quit_i])?;
+
+    let icon = app.default_window_icon().cloned().unwrap_or_else(|| {
+        tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).unwrap()
+    });
+
+    let _tray = TrayIconBuilder::new()
+        .icon(icon)
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .tooltip("TeraLace - TeraBox Downloader")
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "hide" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+            "quit" => {
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+
+    #[cfg(desktop)]
+    {
+        builder = builder.setup(|app| {
+            setup_tray(app)?;
+            Ok(())
+        });
+    }
+
+    builder
         .invoke_handler(tauri::generate_handler![
             get_terabox_info,
             get_download_link,
@@ -224,6 +337,7 @@ pub fn run() {
             get_all_downloads,
             pause_all_downloads,
             resume_all_downloads,
+            open_download_dir,
             set_bandwidth_limit,
             get_bandwidth_limit,
             get_app_settings,
