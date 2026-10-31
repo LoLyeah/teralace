@@ -1,6 +1,6 @@
 [package]
 name = "teralace"
-version = "1.0.13"
+version = "1.0.14"
 description = "TeraLace - Fast and resilient multiplatform TeraBox file downloader"
 authors = ["LoLyeah"]
 license = "GPL-3.0"

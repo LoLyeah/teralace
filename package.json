@@ -1,6 +1,6 @@
 {
   "name": "teralace",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Fast, resilient multiplatform TeraBox downloader for Windows, macOS, and Android built with Tauri v2, Rust, and React.",
   "keywords": [
     "terabox",

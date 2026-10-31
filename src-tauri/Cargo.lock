@@ -4496,7 +4496,7 @@ dependencies = [
 
 [[package]]
 name = "teralace"
-version = "1.0.0"
+version = "1.0.13"
 dependencies = [
  "anyhow",
  "async-trait",

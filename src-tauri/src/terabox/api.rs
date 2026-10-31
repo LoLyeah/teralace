@@ -292,6 +292,25 @@ impl TeraboxApi {
 
         let mut files: Vec<TeraboxFileInfo> = Vec::new();
         for item in file_list {
+            let is_dir = match item.get("isdir") {
+                Some(serde_json::Value::Number(n)) => n.as_i64() == Some(1),
+                Some(serde_json::Value::String(s)) => s == "1" || s == "true",
+                Some(serde_json::Value::Bool(b)) => *b,
+                _ => false,
+            };
+            let folder_path = item.get("path").and_then(|p| p.as_str()).unwrap_or("");
+
+            // If this item is a folder, automatically expand its contents!
+            if is_dir && !folder_path.is_empty() {
+                log::info!("[WAP] Expanding shared folder path: {}", folder_path);
+                if let Ok(folder_files) = self.fetch_wap_folder_contents(clean_surl, folder_path, user_cookie).await {
+                    if !folder_files.is_empty() {
+                        files.extend(folder_files);
+                        continue;
+                    }
+                }
+            }
+
             let name = item
                 .get("server_filename")
                 .and_then(|n| n.as_str())
@@ -302,7 +321,12 @@ impl TeraboxApi {
                 .get("size")
                 .and_then(|s| s.as_i64())
                 .or_else(|| item.get("size").and_then(|s| s.as_str()).and_then(|s| s.parse().ok()));
-            let is_dir = item.get("isdir").and_then(|d| d.as_i64()).unwrap_or(0) == 1;
+            let is_dir = match item.get("isdir") {
+                Some(serde_json::Value::Number(n)) => n.as_i64() == Some(1),
+                Some(serde_json::Value::String(s)) => s == "1" || s == "true",
+                Some(serde_json::Value::Bool(b)) => *b,
+                _ => false,
+            };
             let dlink = item.get("dlink").and_then(|d| d.as_str()).map(|s| s.to_string());
             let thumb = item
                 .get("thumbs")
@@ -340,6 +364,153 @@ impl TeraboxApi {
             error_message: None,
             resolved_by: Some("Direct TeraBox WAP Scraper".to_string()),
         })
+    }
+
+    /// Fetches files inside a subfolder of a shared link via WAP endpoint
+    async fn fetch_wap_folder_contents(
+        &self,
+        clean_surl: &str,
+        folder_path: &str,
+        user_cookie: Option<&str>,
+    ) -> Result<Vec<TeraboxFileInfo>, String> {
+        let folder_url = format!(
+            "https://www.terabox.com/wap/share/filelist?surl={}&path={}",
+            clean_surl,
+            urlencoding::encode(folder_path)
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            USER_AGENT,
+            HeaderValue::from_static("Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"),
+        );
+        headers.insert(ACCEPT, HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"));
+
+        if let Some(cookie) = user_cookie {
+            let cookie_str = cookie.trim();
+            if !cookie_str.is_empty() {
+                let formatted_cookie = if cookie_str.contains('=') {
+                    cookie_str.to_string()
+                } else {
+                    format!("ndus={}", cookie_str)
+                };
+                if let Ok(c_val) = HeaderValue::from_str(&formatted_cookie) {
+                    headers.insert(COOKIE, c_val);
+                }
+            }
+        }
+
+        let resp = self
+            .client
+            .get(&folder_url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| format!("WAP folder request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("WAP folder HTTP {}", resp.status()));
+        }
+
+        let html = resp.text().await.map_err(|e| e.to_string())?;
+
+        let marker = "window.__INITIAL_STATE__=";
+        let start_idx = html
+            .find(marker)
+            .ok_or_else(|| "No __INITIAL_STATE__ found in WAP folder page".to_string())?;
+
+        let json_start = start_idx + marker.len();
+        let slice = &html[json_start..];
+
+        let mut brace_count = 0i32;
+        let mut in_string = false;
+        let mut escape = false;
+        let mut end_idx = None;
+
+        for (i, ch) in slice.char_indices() {
+            if escape {
+                escape = false;
+                continue;
+            }
+            if ch == '\\' {
+                escape = true;
+                continue;
+            }
+            if ch == '"' {
+                in_string = !in_string;
+                continue;
+            }
+            if !in_string {
+                if ch == '{' {
+                    brace_count += 1;
+                } else if ch == '}' {
+                    brace_count -= 1;
+                    if brace_count == 0 {
+                        end_idx = Some(i + 1);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let end = end_idx.ok_or_else(|| "Unterminated JSON in folder __INITIAL_STATE__".to_string())?;
+        let json_str = &slice[..end];
+
+        let state: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| format!("Failed to parse folder __INITIAL_STATE__ JSON: {}", e))?;
+
+        let file_list = state
+            .get("share")
+            .and_then(|s| s.get("fileList").or_else(|| s.get("list")))
+            .and_then(|l| l.as_array())
+            .ok_or_else(|| "No fileList in WAP folder share state".to_string())?;
+
+        let mut folder_files: Vec<TeraboxFileInfo> = Vec::new();
+        for item in file_list {
+            let name = item
+                .get("server_filename")
+                .and_then(|n| n.as_str())
+                .unwrap_or("file")
+                .to_string();
+            let fs_id = item.get("fs_id").map(|f| f.to_string()).unwrap_or_default();
+            let size = item
+                .get("size")
+                .and_then(|s| s.as_i64())
+                .or_else(|| item.get("size").and_then(|s| s.as_str()).and_then(|s| s.parse().ok()));
+            let is_dir = match item.get("isdir") {
+                Some(serde_json::Value::Number(n)) => n.as_i64() == Some(1),
+                Some(serde_json::Value::String(s)) => s == "1" || s == "true",
+                Some(serde_json::Value::Bool(b)) => *b,
+                _ => false,
+            };
+            let dlink = item.get("dlink").and_then(|d| d.as_str()).map(|s| s.to_string());
+            let thumb = item
+                .get("thumbs")
+                .and_then(|t| t.get("url3"))
+                .and_then(|u| u.as_str())
+                .map(|s| s.to_string());
+
+            let file_type = if is_dir {
+                "folder".to_string()
+            } else {
+                Self::detect_file_type(&name)
+            };
+
+            folder_files.push(TeraboxFileInfo {
+                is_dir,
+                fs_id,
+                name,
+                file_type,
+                size,
+                size_formatted: None,
+                category: None,
+                create_time: item.get("server_mtime").and_then(|m| m.as_i64()),
+                thumb,
+                direct_link: dlink,
+            });
+        }
+
+        Ok(folder_files)
     }
 
     /// Direct TeraBox mobile/web API scraper fallback with optional cookie
@@ -411,7 +582,12 @@ impl TeraboxApi {
             let size = item.get("size").and_then(|s| s.as_i64()).or_else(|| {
                 item.get("size").and_then(|s| s.as_str()).and_then(|s| s.parse().ok())
             });
-            let is_dir = item.get("isdir").and_then(|d| d.as_i64()).unwrap_or(0) == 1;
+            let is_dir = match item.get("isdir") {
+                Some(serde_json::Value::Number(n)) => n.as_i64() == Some(1),
+                Some(serde_json::Value::String(s)) => s == "1" || s == "true",
+                Some(serde_json::Value::Bool(b)) => *b,
+                _ => false,
+            };
             let dlink = item.get("dlink").and_then(|d| d.as_str()).map(|s| s.to_string());
             let thumb = item.get("thumbs").and_then(|t| t.get("url3")).and_then(|u| u.as_str()).map(|s| s.to_string());
 
