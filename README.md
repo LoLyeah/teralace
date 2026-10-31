@@ -37,7 +37,7 @@ Pre-built binaries are available for desktop and mobile directly on the **[Relea
 - **Mobile (Android):** Adaptive touch-first layout with bottom navigation tabs, Scoped Storage integration, and background download service.
 - **Lightweight & Fast:** Single-digit MB RAM idle usage and compact ~15–20 MB application footprint.
 
-### 2. 🛡️ Resilient Fetch Engine (abdul97233 API Engine)
+### 2. 🛡️ Resilient Fetch Engine
 - **Health-Aware Load Balancer:** Automatically rotates requests round-robin across an active pool of API endpoints.
 - **120s Circuit Breaker:** Detects rate limits (HTTP 429) and unresponsive nodes (5+ consecutive failures) and temporarily cooldowns them for 120 seconds to prevent cascading bottlenecks.
 - **Comprehensive Domain Normalizer:** Seamlessly parses 50+ TeraBox domains and mirror formats (`1024terabox.com`, `terabox.app`, `terasharelink.com`, `nephobox.com`, `4funbox.com`, `mirrobox.com`, etc.).
