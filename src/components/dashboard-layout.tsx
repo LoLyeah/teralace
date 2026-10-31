@@ -5,7 +5,7 @@ import { relaunch, exit } from '@tauri-apps/plugin-process';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { 
-  Download, Loader2, Link, FileDown, Trash2, Play, Pause, FolderOpen, 
+  Loader2, Link, FileDown, Trash2, Play, Pause, FolderOpen, 
   Settings, X, ListX, Gauge, ShieldCheck, Plus, Activity, Server, Key
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -269,13 +269,15 @@ export function DashboardLayout() {
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
       {/* Header */}
       <header className="border-b px-4 md:px-6 py-3 flex items-center justify-between bg-card shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-sm">
-            <Download className="text-primary-foreground h-5 w-5" />
-          </div>
+        <div className="flex items-center gap-2.5">
+          <img 
+            src="/logo.png" 
+            alt="TeraLace Logo" 
+            className="w-8 h-8 rounded-lg shadow-sm object-cover border border-primary/20"
+          />
           <div>
-            <h1 className="font-bold text-lg md:text-xl leading-tight">
-              TeraLace <span className="text-primary font-medium text-xs md:text-sm">Multiplatform</span>
+            <h1 className="font-bold text-lg md:text-xl leading-tight tracking-tight flex items-center gap-1.5">
+              TeraLace <span className="text-primary font-medium text-xs md:text-sm bg-primary/10 px-2 py-0.5 rounded-full">Multiplatform</span>
             </h1>
           </div>
         </div>

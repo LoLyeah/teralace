@@ -1,27 +1,53 @@
-# TeraLace (Multiplatform TeraBox Downloader)
+<p align="center">
+  <img src="assets/logo.png" alt="TeraLace Logo" width="160" style="border-radius: 36px; box-shadow: 0 10px 30px rgba(0,0,0,0.4);" />
+</p>
 
-A high-speed, modern, and resilient TeraBox file downloader built with **Tauri v2** (Rust + React + Vite + Tailwind CSS).
-Engineered to run natively across **Windows**, **macOS**, and **Android** from a single unified codebase.
+<h1 align="center">TeraLace</h1>
+
+<p align="center">
+  <strong>Fast, Modern &amp; Resilient Multiplatform TeraBox Downloader</strong><br>
+  Built with <strong>Tauri v2</strong> &bull; <strong>Rust</strong> &bull; <strong>React</strong> &bull; <strong>Tailwind CSS</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/LoLyeah/teralace/releases"><img src="https://img.shields.io/github/v/release/LoLyeah/teralace?style=for-the-badge&color=0284c7" alt="Latest Release" /></a>
+  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Android-38bdf8?style=for-the-badge" alt="Platforms" />
+  <img src="https://img.shields.io/badge/Backend-Rust%20%2B%20Tauri%20v2-orange?style=for-the-badge" alt="Backend" />
+  <img src="https://img.shields.io/badge/License-GPL--3.0-green?style=for-the-badge" alt="License" />
+</p>
+
+---
+
+## 📥 Downloads & Installation
+
+Pre-built binaries are available for desktop and mobile directly on the **[Releases Page](https://github.com/LoLyeah/teralace/releases)**:
+
+| Platform | Format | Architecture | Download Link |
+|:---|:---|:---|:---|
+| **Windows** | Setup `.exe` / `.msi` | x86_64 | [Latest Windows Release](https://github.com/LoLyeah/teralace/releases/latest) |
+| **macOS** | `.dmg` Installer | Apple Silicon (`aarch64`) & Intel (`x64`) | [Latest macOS Release](https://github.com/LoLyeah/teralace/releases/latest) |
+| **Android** | Package `.apk` | ARM64 (`arm64-v8a`) | [Latest Android APK](https://github.com/LoLyeah/teralace/releases/latest) |
 
 ---
 
 ## ✨ Features & Architecture Upgrades
 
-### 1. 🌐 Multiplatform Support (Windows, macOS, Android)
-- **Desktop (Windows & macOS):** Native windows, file pickers, bandwidth regulation, and system notifications.
-- **Mobile (Android):** Adaptive touch-first layout with bottom navigation tabs, Scoped Storage integration, and foreground download service.
-- **Lightweight:** Single-digit MB memory usage and ~15–20 MB application size.
+### 1. 🌐 True Multiplatform Support (Windows, macOS, Android)
+- **Desktop (Windows & macOS):** Native windows, file pickers, bandwidth regulation, system tray minimization, and desktop notifications.
+- **Mobile (Android):** Adaptive touch-first layout with bottom navigation tabs, Scoped Storage integration, and background download service.
+- **Lightweight & Fast:** Single-digit MB RAM idle usage and compact ~15–20 MB application footprint.
 
-### 2. 🛡️ Resilient Fetch Engine (Inspired by abdul97233/TeraBox-Downloader-Bot)
+### 2. 🛡️ Resilient Fetch Engine (abdul97233 API Engine)
 - **Health-Aware Load Balancer:** Automatically rotates requests round-robin across an active pool of API endpoints.
-- **120s Circuit Breaker:** Detects rate limits (HTTP 429) and unresponsive nodes (5+ consecutive failures) and temporarily disables them for 120 seconds to prevent cascading failures.
-- **Comprehensive Domain Normalizer:** Seamlessly parses 50+ TeraBox domains and mirrors (`1024terabox.com`, `terabox.app`, `terasharelink.com`, `nephobox.com`, `4funbox.com`, `mirrobox.com`, etc.).
+- **120s Circuit Breaker:** Detects rate limits (HTTP 429) and unresponsive nodes (5+ consecutive failures) and temporarily cooldowns them for 120 seconds to prevent cascading bottlenecks.
+- **Comprehensive Domain Normalizer:** Seamlessly parses 50+ TeraBox domains and mirror formats (`1024terabox.com`, `terabox.app`, `terasharelink.com`, `nephobox.com`, `4funbox.com`, `mirrobox.com`, etc.).
 - **Direct TeraBox Scraper & Session Cookie (`ndus`):** When remote APIs are busy or unavailable, the built-in direct scraper resolves links directly with optional `ndus` cookie support to bypass anonymous download speed throttles.
 
 ### 3. ⚡ Embedded Pure Rust Chunk Downloader
 - **Zero External CLI Dependencies:** Eliminates reliance on external `aria2c` binaries that are restricted on Android due to SELinux `W^X` policies.
-- **Parallel HTTP Range Requests:** Splits files into multiple concurrent streams for maximum download throughput.
-- **Graceful Controls:** Full Pause, Resume, Cancel, and real-time speed monitoring.
+- **Parallel HTTP Range Requests:** Splits files into multiple concurrent streams for maximum download throughput with isolated chunk segments and atomic merge.
+- **Graceful Controls:** Full Pause, Resume, Cancel, native file reveal, and real-time speed monitoring.
+- **In-App Media Stream:** Preview video files immediately before or during download.
 
 ---
 
@@ -60,10 +86,10 @@ npm run tauri build -- --target universal-apple-darwin
 #### Android (Release APK)
 ```bash
 # 1. Initialize Android target (first time)
-npm run tauri android init
+npm run tauri android init --ci
 
 # 2. Build Release APK
-npm run tauri android build -- --apk
+npm run tauri android build --apk --target aarch64 --ci
 # Output: src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
 ```
 
@@ -86,4 +112,4 @@ To download private folders or bypass anonymous bandwidth throttles:
 ---
 
 ## 📄 License
-MIT License.
+GNU General Public License v3.0 (GPL-3.0).
