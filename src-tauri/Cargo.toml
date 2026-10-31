@@ -1,12 +1,12 @@
 [package]
-name = "trauso"
-version = "0.1.0"
-description = "TeraBox Downloader - Fast and easy multiplatform file downloader"
-authors = ["basstimam"]
+name = "teralace"
+version = "1.0.0"
+description = "TeraLace - Fast and resilient multiplatform TeraBox file downloader"
+authors = ["LoLyeah"]
 edition = "2021"
 
 [lib]
-name = "trauso_lib"
+name = "teralace_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

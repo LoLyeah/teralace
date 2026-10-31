@@ -98,6 +98,6 @@ pub fn clear_history() -> Result<(), String> {
 fn get_config_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("trauso")
+        .join("teralace")
 }
 
