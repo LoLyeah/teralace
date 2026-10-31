@@ -1,7 +1,29 @@
 {
   "name": "teralace",
-  "private": true,
   "version": "1.0.0",
+  "description": "Fast, resilient multiplatform TeraBox downloader for Windows, macOS, and Android built with Tauri v2, Rust, and React.",
+  "keywords": [
+    "terabox",
+    "terabox-downloader",
+    "downloader",
+    "tauri",
+    "tauri-v2",
+    "rust",
+    "react",
+    "windows",
+    "macos",
+    "android",
+    "portable",
+    "multiplatform"
+  ],
+  "homepage": "https://github.com/LoLyeah/teralace",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LoLyeah/teralace.git"
+  },
+  "license": "GPL-3.0",
+  "author": "LoLyeah",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",

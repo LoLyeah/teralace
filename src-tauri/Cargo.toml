@@ -3,6 +3,11 @@ name = "teralace"
 version = "1.0.0"
 description = "TeraLace - Fast and resilient multiplatform TeraBox file downloader"
 authors = ["LoLyeah"]
+license = "GPL-3.0"
+homepage = "https://github.com/LoLyeah/teralace"
+repository = "https://github.com/LoLyeah/teralace"
+keywords = ["terabox", "downloader", "tauri", "desktop", "android"]
+categories = ["multimedia::download", "network-programming"]
 edition = "2021"
 
 [lib]
