@@ -101,7 +101,26 @@ jobs:
       - name: Build Android Release APK
         run: |
           chmod +x src-tauri/gen/android/gradlew || true
-          npx tauri android build --apk --target aarch64 --ci
+          npx tauri android build --apk --target aarch64 --ci > android_build.log 2>&1 || {
+            echo "====== ANDROID BUILD FAILED. LOG TAIL: ======"
+            tail -n 120 android_build.log
+            exit 1
+          }
+
+      - name: Push Android Log on Failure
+        if: failure()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B debug-android
+          git add -f android_build.log || true
+          git commit -m "debug: android build output" || true
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" debug-android || true
+
+      - name: Sign Android APK
+        run: |
+          keytool -genkey -v -keystore app.keystore -alias teralace -keyalg RSA -keysize 2048 -validity 10000 -storepass teralace123 -keypass teralace123 -dname "CN=TeraLace, OU=App, O=TeraLace, L=City, S=State, C=US"
+          find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk" -exec $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks app.keystore --ks-pass pass:teralace123 --ks-key-alias teralace --key-pass pass:teralace123 {} +
 
       - name: Upload Android APK
         uses: softprops/action-gh-release@v2

@@ -24,16 +24,3 @@ if (fs.existsSync(manifestPath)) {
 } else {
   console.log('Warning: AndroidManifest.xml not found at', manifestPath);
 }
-
-const gradlePath = path.resolve(__dirname, '../src-tauri/gen/android/app/build.gradle.kts');
-if (fs.existsSync(gradlePath)) {
-  let gradle = fs.readFileSync(gradlePath, 'utf8');
-  if (!gradle.includes('signingConfigs.getByName("debug")')) {
-    gradle = gradle.replace(
-      'getByName("release") {',
-      'getByName("release") {\n            signingConfig = signingConfigs.getByName("debug")'
-    );
-    fs.writeFileSync(gradlePath, gradle, 'utf8');
-    console.log('Configured debug signingConfig for release APK in build.gradle.kts');
-  }
-}
