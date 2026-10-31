@@ -117,16 +117,24 @@ jobs:
           git commit -m "debug: android build output" || true
           git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" debug-android || true
 
-      - name: Sign Android APK
+      - name: Sign & Package Android APK
         run: |
           keytool -genkey -v -keystore app.keystore -alias teralace -keyalg RSA -keysize 2048 -validity 10000 -storepass teralace123 -keypass teralace123 -dname "CN=TeraLace, OU=App, O=TeraLace, L=City, S=State, C=US"
-          find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk" -exec $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks app.keystore --ks-pass pass:teralace123 --ks-key-alias teralace --key-pass pass:teralace123 {} +
+          mkdir -p dist-apk
+          for f in $(find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk"); do
+            echo "Signing $f..."
+            $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks app.keystore --ks-pass pass:teralace123 --ks-key-alias teralace --key-pass pass:teralace123 "$f"
+            $ANDROID_HOME/build-tools/34.0.0/apksigner verify "$f"
+            cp "$f" dist-apk/TeraLace.apk
+            cp "$f" dist-apk/TeraLace_1.0.0_universal.apk
+          done
+          ls -la dist-apk/
 
       - name: Upload Android APK
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+            dist-apk/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
