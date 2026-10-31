@@ -213,8 +213,14 @@ impl TeraboxApi {
         headers.insert(ORIGIN, HeaderValue::from_static("https://www.terabox.app"));
 
         if let Some(cookie) = user_cookie {
-            if !cookie.trim().is_empty() {
-                if let Ok(c_val) = HeaderValue::from_str(cookie.trim()) {
+            let cookie_str = cookie.trim();
+            if !cookie_str.is_empty() {
+                let formatted_cookie = if cookie_str.contains('=') {
+                    cookie_str.to_string()
+                } else {
+                    format!("ndus={}", cookie_str)
+                };
+                if let Ok(c_val) = HeaderValue::from_str(&formatted_cookie) {
                     headers.insert(COOKIE, c_val);
                 }
             }
@@ -273,7 +279,7 @@ impl TeraboxApi {
             });
         }
 
-        let shareid = v.get("shareid").and_then(|s| s.as_i64()).unwrap_or(0);
+        let shareid = v.get("shareid").or_else(|| v.get("share_id")).and_then(|s| s.as_i64()).unwrap_or(0);
         let uk = v.get("uk").and_then(|u| u.as_i64()).unwrap_or(0);
         let sign = v.get("sign").and_then(|s| s.as_str()).unwrap_or_default().to_string();
         let timestamp = v.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);

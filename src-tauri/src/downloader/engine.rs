@@ -1,6 +1,6 @@
 use crate::downloader::types::{DownloadInfo, DownloadOptions, DownloadStatus};
 use futures_util::StreamExt;
-use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, RANGE, USER_AGENT};
+use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, RANGE, REFERER, USER_AGENT};
 use reqwest::Client;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -10,6 +10,8 @@ use std::time::Duration;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
+
+const CHUNK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 
 #[derive(Clone)]
 pub struct DownloadTask {
@@ -127,7 +129,7 @@ impl DownloadManager {
         // 1. Probe remote file length & byte ranges support
         let probe_res = client
             .head(&task.url)
-            .header(USER_AGENT, "Mozilla/5.0")
+            .header(USER_AGENT, CHUNK_USER_AGENT).header(REFERER, "https://www.terabox.app/")
             .send()
             .await;
 
@@ -154,7 +156,7 @@ impl DownloadManager {
             if let Ok(resp) = client
                 .get(&task.url)
                 .header(RANGE, "bytes=0-0")
-                .header(USER_AGENT, "Mozilla/5.0")
+                .header(USER_AGENT, CHUNK_USER_AGENT).header(REFERER, "https://www.terabox.app/")
                 .send()
                 .await
             {
@@ -308,7 +310,7 @@ impl DownloadManager {
         let resp = client
             .get(&task.url)
             .header(RANGE, range_val)
-            .header(USER_AGENT, "Mozilla/5.0")
+            .header(USER_AGENT, CHUNK_USER_AGENT).header(REFERER, "https://www.terabox.app/")
             .send()
             .await
             .map_err(|e| format!("Range request failed: {}", e))?;
@@ -354,7 +356,7 @@ impl DownloadManager {
     async fn download_single_stream(client: &Client, task: &DownloadTask) -> Result<(), String> {
         let resp = client
             .get(&task.url)
-            .header(USER_AGENT, "Mozilla/5.0")
+            .header(USER_AGENT, CHUNK_USER_AGENT).header(REFERER, "https://www.terabox.app/")
             .send()
             .await
             .map_err(|e| format!("Request failed: {}", e))?;
