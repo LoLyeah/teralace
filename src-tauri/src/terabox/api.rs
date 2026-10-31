@@ -192,6 +192,156 @@ impl TeraboxApi {
         })
     }
 
+    /// Fetches file metadata & pre-signed direct download links (dlink) via TeraBox WAP sharing page
+    async fn fetch_wap_direct(
+        &self,
+        clean_surl: &str,
+        user_cookie: Option<&str>,
+    ) -> Result<TeraboxInfo, String> {
+        let wap_url = format!("https://www.terabox.com/wap/share/filelist?surl={}", clean_surl);
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            USER_AGENT,
+            HeaderValue::from_static("Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"),
+        );
+        headers.insert(ACCEPT, HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"));
+
+        if let Some(cookie) = user_cookie {
+            let cookie_str = cookie.trim();
+            if !cookie_str.is_empty() {
+                let formatted_cookie = if cookie_str.contains('=') {
+                    cookie_str.to_string()
+                } else {
+                    format!("ndus={}", cookie_str)
+                };
+                if let Ok(c_val) = HeaderValue::from_str(&formatted_cookie) {
+                    headers.insert(COOKIE, c_val);
+                }
+            }
+        }
+
+        let resp = self
+            .client
+            .get(&wap_url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| format!("WAP request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("WAP HTTP {}", resp.status()));
+        }
+
+        let html = resp.text().await.map_err(|e| e.to_string())?;
+
+        let marker = "window.__INITIAL_STATE__=";
+        let start_idx = html
+            .find(marker)
+            .ok_or_else(|| "No __INITIAL_STATE__ found in WAP page".to_string())?;
+
+        let json_start = start_idx + marker.len();
+        let slice = &html[json_start..];
+
+        let mut brace_count = 0i32;
+        let mut in_string = false;
+        let mut escape = false;
+        let mut end_idx = None;
+
+        for (i, ch) in slice.char_indices() {
+            if escape {
+                escape = false;
+                continue;
+            }
+            if ch == '\\' {
+                escape = true;
+                continue;
+            }
+            if ch == '"' {
+                in_string = !in_string;
+                continue;
+            }
+            if !in_string {
+                if ch == '{' {
+                    brace_count += 1;
+                } else if ch == '}' {
+                    brace_count -= 1;
+                    if brace_count == 0 {
+                        end_idx = Some(i + 1);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let end = end_idx.ok_or_else(|| "Unterminated JSON in __INITIAL_STATE__".to_string())?;
+        let json_str = &slice[..end];
+
+        let state: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| format!("Failed to parse __INITIAL_STATE__ JSON: {}", e))?;
+
+        let file_list = state
+            .get("share")
+            .and_then(|s| s.get("fileList").or_else(|| s.get("list")))
+            .and_then(|l| l.as_array())
+            .ok_or_else(|| "No fileList in WAP share state".to_string())?;
+
+        if file_list.is_empty() {
+            return Err("WAP fileList is empty".to_string());
+        }
+
+        let mut files: Vec<TeraboxFileInfo> = Vec::new();
+        for item in file_list {
+            let name = item
+                .get("server_filename")
+                .and_then(|n| n.as_str())
+                .unwrap_or("file")
+                .to_string();
+            let fs_id = item.get("fs_id").map(|f| f.to_string()).unwrap_or_default();
+            let size = item
+                .get("size")
+                .and_then(|s| s.as_i64())
+                .or_else(|| item.get("size").and_then(|s| s.as_str()).and_then(|s| s.parse().ok()));
+            let is_dir = item.get("isdir").and_then(|d| d.as_i64()).unwrap_or(0) == 1;
+            let dlink = item.get("dlink").and_then(|d| d.as_str()).map(|s| s.to_string());
+            let thumb = item
+                .get("thumbs")
+                .and_then(|t| t.get("url3"))
+                .and_then(|u| u.as_str())
+                .map(|s| s.to_string());
+
+            let file_type = if is_dir {
+                "folder".to_string()
+            } else {
+                Self::detect_file_type(&name)
+            };
+
+            files.push(TeraboxFileInfo {
+                is_dir,
+                fs_id,
+                name,
+                file_type,
+                size,
+                size_formatted: None,
+                category: None,
+                create_time: item.get("server_mtime").and_then(|m| m.as_i64()),
+                thumb,
+                direct_link: dlink,
+            });
+        }
+
+        Ok(TeraboxInfo {
+            ok: true,
+            shareid: 0,
+            uk: 0,
+            sign: String::new(),
+            timestamp: 0,
+            list: files,
+            error_message: None,
+            resolved_by: Some("Direct TeraBox WAP Scraper".to_string()),
+        })
+    }
+
     /// Direct TeraBox mobile/web API scraper fallback with optional cookie
     async fn fetch_direct_terabox(
         &self,
@@ -203,6 +353,12 @@ impl TeraboxApi {
         }
 
         let clean_surl = surl.trim_start_matches('1');
+
+        // 1. Try WAP Direct Scraper first (extracts pre-signed dlink URLs!)
+        if let Ok(info) = self.fetch_wap_direct(clean_surl, user_cookie).await {
+            log::info!("[Fetch] WAP Direct Scraper succeeded with {} files", info.list.len());
+            return Ok(info);
+        }
         let api_url = format!(
             "https://www.terabox.app/share/list?app_id=250528&shorturl={}&root=1",
             clean_surl
