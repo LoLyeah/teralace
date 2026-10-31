@@ -24,7 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # HTTP client for TeraBox API and chunk streaming
-reqwest = { version = "0.12", features = ["json", "gzip", "deflate", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "gzip", "deflate", "stream", "rustls-tls"] }
 futures-util = "0.3"
 
 # Async runtime
