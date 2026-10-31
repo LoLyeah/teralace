@@ -15,10 +15,13 @@ jobs:
       matrix:
         include:
           - platform: 'windows-latest'
+            target: 'x86_64-pc-windows-msvc'
             args: ''
           - platform: 'macos-latest'
+            target: 'aarch64-apple-darwin'
             args: '--target aarch64-apple-darwin'
           - platform: 'macos-latest'
+            target: 'x86_64-apple-darwin'
             args: '--target x86_64-apple-darwin'
 
     runs-on: ${{ matrix.platform }}
@@ -33,7 +36,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && (contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || '' }}
+          targets: ${{ matrix.target }}
 
       - name: Install Frontend Dependencies
         run: npm install
@@ -73,11 +76,12 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME"
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;26.1.10909125" "platforms;android-34" "build-tools;34.0.0"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
+          echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
 
       - name: Install Rust stable & Android targets
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
       - name: Install Frontend Dependencies
         run: npm install
@@ -85,7 +89,7 @@ jobs:
       - name: Initialize Android Target & Inject Permissions
         run: |
           if [ ! -d "src-tauri/gen/android" ]; then
-            npx tauri android init
+            npx tauri android init --ci
           fi
           MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST" ]; then
@@ -93,7 +97,7 @@ jobs:
           fi
 
       - name: Build Android Release APK
-        run: npx tauri android build -- --apk
+        run: npx tauri android build --apk --target aarch64 --ci
 
       - name: Upload Android APK
         uses: softprops/action-gh-release@v2
