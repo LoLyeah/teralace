@@ -1,0 +1,476 @@
+use crate::downloader::types::{DownloadInfo, DownloadOptions, DownloadStatus};
+use futures_util::StreamExt;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT_RANGES, CONTENT_LENGTH, RANGE, USER_AGENT};
+use reqwest::Client;
+use std::collections::HashMap;
+use std::io::SeekFrom;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::fs::OpenOptions;
+use tokio::io::AsyncSeekExt;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::RwLock;
+
+#[derive(Clone)]
+pub struct DownloadTask {
+    pub gid: String,
+    pub url: String,
+    pub filename: String,
+    pub filepath: PathBuf,
+    pub total_size: Arc<AtomicU64>,
+    pub downloaded: Arc<AtomicU64>,
+    pub speed: Arc<AtomicU64>,
+    pub status: Arc<RwLock<DownloadStatus>>,
+    pub error_message: Arc<RwLock<Option<String>>>,
+    pub cancel_flag: Arc<AtomicBool>,
+    pub pause_flag: Arc<AtomicBool>,
+}
+
+pub struct DownloadManager {
+    client: Client,
+    tasks: Arc<RwLock<HashMap<String, DownloadTask>>>,
+    default_download_dir: Arc<RwLock<PathBuf>>,
+    max_connections: Arc<RwLock<usize>>,
+}
+
+impl DownloadManager {
+    pub fn new() -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(60))
+            .build()
+            .expect("Failed to build downloader HTTP client");
+
+        let default_dir = dirs::download_dir()
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+            .join("TeraBox");
+
+        Self {
+            client,
+            tasks: Arc::new(RwLock::new(HashMap::new())),
+            default_download_dir: Arc::new(RwLock::new(default_dir)),
+            max_connections: Arc::new(RwLock::new(8)),
+        }
+    }
+
+    pub async fn set_default_dir(&self, dir: PathBuf) {
+        let mut d = self.default_download_dir.write().await;
+        *d = dir;
+    }
+
+    pub async fn get_default_dir(&self) -> PathBuf {
+        self.default_download_dir.read().await.clone()
+    }
+
+    pub async fn set_max_connections(&self, count: usize) {
+        let mut c = self.max_connections.write().await;
+        *c = count.clamp(1, 32);
+    }
+
+    /// Adds and immediately starts a new download
+    pub async fn add_download(
+        &self,
+        url: &str,
+        options: Option<DownloadOptions>,
+    ) -> Result<String, String> {
+        let gid = uuid::Uuid::new_v4().to_string();
+        let opts = options.unwrap_or_default();
+
+        let target_dir = if let Some(dir_str) = opts.dir {
+            PathBuf::from(dir_str)
+        } else {
+            self.get_default_dir().await
+        };
+
+        // Ensure destination directory exists
+        tokio::fs::create_dir_all(&target_dir)
+            .await
+            .map_err(|e| format!("Failed to create download folder: {}", e))?;
+
+        let filename = if let Some(out_name) = opts.out {
+            out_name
+        } else {
+            Self::extract_filename_from_url(url)
+        };
+
+        let filepath = target_dir.join(&filename);
+
+        let task = DownloadTask {
+            gid: gid.clone(),
+            url: url.to_string(),
+            filename,
+            filepath,
+            total_size: Arc::new(AtomicU64::new(0)),
+            downloaded: Arc::new(AtomicU64::new(0)),
+            speed: Arc::new(AtomicU64::new(0)),
+            status: Arc::new(RwLock::new(DownloadStatus::Active)),
+            error_message: Arc::new(RwLock::new(None)),
+            cancel_flag: Arc::new(AtomicBool::new(false)),
+            pause_flag: Arc::new(AtomicBool::new(false)),
+        };
+
+        {
+            let mut map = self.tasks.write().await;
+            map.insert(gid.clone(), task.clone());
+        }
+
+        // Spawn async download worker
+        let client = self.client.clone();
+        let max_conn = *self.max_connections.read().await;
+        tokio::spawn(async move {
+            Self::run_download_task(client, task, max_conn).await;
+        });
+
+        Ok(gid)
+    }
+
+    /// Task executor with chunked range downloading
+    async fn run_download_task(client: Client, task: DownloadTask, max_conn: usize) {
+        // 1. Probe remote file
+        let probe_res = client
+            .head(&task.url)
+            .header(USER_AGENT, "Mozilla/5.0")
+            .send()
+            .await;
+
+        let mut total_size: u64 = 0;
+        let mut supports_range = false;
+
+        if let Ok(resp) = probe_res {
+            if resp.status().is_success() {
+                if let Some(cl) = resp.headers().get(CONTENT_LENGTH) {
+                    if let Ok(s) = cl.to_str() {
+                        total_size = s.parse::<u64>().unwrap_or(0);
+                    }
+                }
+                if let Some(ar) = resp.headers().get(ACCEPT_RANGES) {
+                    if let Ok(s) = ar.to_str() {
+                        supports_range = s.to_lowercase().contains("bytes");
+                    }
+                }
+            }
+        }
+
+        // If HEAD didn't yield size, try GET with Range: bytes=0-0
+        if total_size == 0 {
+            if let Ok(resp) = client
+                .get(&task.url)
+                .header(RANGE, "bytes=0-0")
+                .header(USER_AGENT, "Mozilla/5.0")
+                .send()
+                .await
+            {
+                if resp.status().as_u16() == 206 {
+                    supports_range = true;
+                    if let Some(cr) = resp.headers().get("content-range") {
+                        if let Ok(s) = cr.to_str() {
+                            if let Some(total_str) = s.split('/').last() {
+                                total_size = total_str.parse::<u64>().unwrap_or(0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        task.total_size.store(total_size, Ordering::SeqCst);
+
+        // Pre-create output file
+        if let Err(e) = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&task.filepath)
+            .await
+        {
+            *task.status.write().await = DownloadStatus::Error;
+            *task.error_message.write().await = Some(format!("Failed to create file: {}", e));
+            return;
+        }
+
+        // Spawn speed monitor
+        let task_clone = task.clone();
+        let monitor_handle = tokio::spawn(async move {
+            let mut last_downloaded = 0u64;
+            loop {
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+                if task_clone.cancel_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                let current = task_clone.downloaded.load(Ordering::Relaxed);
+                let speed = current.saturating_sub(last_downloaded);
+                task_clone.speed.store(speed, Ordering::Relaxed);
+                last_downloaded = current;
+
+                let status = task_clone.status.read().await;
+                if *status == DownloadStatus::Complete || *status == DownloadStatus::Error {
+                    break;
+                }
+            }
+        });
+
+        // 2. Download Execution: Multi-chunk if range supported, else single stream
+        let download_result = if supports_range && total_size > 1024 * 1024 {
+            Self::download_chunked(&client, &task, total_size, max_conn).await
+        } else {
+            Self::download_single_stream(&client, &task).await
+        };
+
+        monitor_handle.abort();
+        task.speed.store(0, Ordering::Relaxed);
+
+        match download_result {
+            Ok(_) => {
+                if !task.cancel_flag.load(Ordering::Relaxed) {
+                    *task.status.write().await = DownloadStatus::Complete;
+                }
+            }
+            Err(e) => {
+                if !task.cancel_flag.load(Ordering::Relaxed) {
+                    *task.status.write().await = DownloadStatus::Error;
+                    *task.error_message.write().await = Some(e);
+                }
+            }
+        }
+    }
+
+    /// Downloads file using parallel HTTP Range chunks
+    async fn download_chunked(
+        client: &Client,
+        task: &DownloadTask,
+        total_size: u64,
+        max_conn: usize,
+    ) -> Result<(), String> {
+        let chunk_count = max_conn.clamp(2, 16);
+        let chunk_size = total_size / (chunk_count as u64);
+        let mut handles = Vec::new();
+
+        for i in 0..chunk_count {
+            let start = i as u64 * chunk_size;
+            let end = if i == chunk_count - 1 {
+                total_size - 1
+            } else {
+                (i as u64 + 1) * chunk_size - 1
+            };
+
+            let client_c = client.clone();
+            let task_c = task.clone();
+            let path_c = task.filepath.clone();
+
+            handles.push(tokio::spawn(async move {
+                Self::download_range_segment(client_c, task_c, path_c, start, end).await
+            }));
+        }
+
+        for handle in handles {
+            match handle.await {
+                Ok(Ok(_)) => (),
+                Ok(Err(e)) => return Err(e),
+                Err(join_err) => return Err(format!("Chunk worker error: {}", join_err)),
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn download_range_segment(
+        client: Client,
+        task: DownloadTask,
+        filepath: PathBuf,
+        start: u64,
+        end: u64,
+    ) -> Result<(), String> {
+        let range_val = format!("bytes={}-{}", start, end);
+        let resp = client
+            .get(&task.url)
+            .header(RANGE, range_val)
+            .header(USER_AGENT, "Mozilla/5.0")
+            .send()
+            .await
+            .map_err(|e| format!("Range request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("Server returned HTTP {}", resp.status()));
+        }
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .open(&filepath)
+            .await
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+
+        file.seek(SeekFrom::Start(start))
+            .await
+            .map_err(|e| format!("Failed to seek file: {}", e))?;
+
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk_res) = stream.next().await {
+            if task.cancel_flag.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+
+            while task.pause_flag.load(Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                if task.cancel_flag.load(Ordering::Relaxed) {
+                    return Ok(());
+                }
+            }
+
+            let chunk = chunk_res.map_err(|e| format!("Read chunk error: {}", e))?;
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| format!("Write chunk error: {}", e))?;
+
+            task.downloaded.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+        }
+
+        file.flush().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Single stream download fallback
+    async fn download_single_stream(client: &Client, task: &DownloadTask) -> Result<(), String> {
+        let resp = client
+            .get(&task.url)
+            .header(USER_AGENT, "Mozilla/5.0")
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("HTTP status {}", resp.status()));
+        }
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .open(&task.filepath)
+            .await
+            .map_err(|e| format!("Failed to open output file: {}", e))?;
+
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk_res) = stream.next().await {
+            if task.cancel_flag.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+
+            while task.pause_flag.load(Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                if task.cancel_flag.load(Ordering::Relaxed) {
+                    return Ok(());
+                }
+            }
+
+            let chunk = chunk_res.map_err(|e| format!("Chunk error: {}", e))?;
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| format!("Write error: {}", e))?;
+
+            task.downloaded.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+        }
+
+        file.flush().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub async fn get_status(&self, gid: &str) -> Result<DownloadInfo, String> {
+        let map = self.tasks.read().await;
+        let task = map.get(gid).ok_or_else(|| "Download not found".to_string())?;
+
+        let downloaded = task.downloaded.load(Ordering::Relaxed);
+        let total = task.total_size.load(Ordering::Relaxed);
+        let speed = task.speed.load(Ordering::Relaxed);
+        let status = task.status.read().await.clone();
+        let error = task.error_message.read().await.clone();
+
+        let progress = if total == 0 {
+            0.0
+        } else {
+            ((downloaded as f64 / total as f64) * 100.0).min(100.0)
+        };
+
+        Ok(DownloadInfo {
+            gid: task.gid.clone(),
+            filename: task.filename.clone(),
+            total_size: total,
+            downloaded,
+            speed,
+            progress,
+            status,
+            error_message: error,
+        })
+    }
+
+    pub async fn pause_download(&self, gid: &str) -> Result<String, String> {
+        let map = self.tasks.read().await;
+        let task = map.get(gid).ok_or_else(|| "Download not found".to_string())?;
+        task.pause_flag.store(true, Ordering::Relaxed);
+        *task.status.write().await = DownloadStatus::Paused;
+        Ok(gid.to_string())
+    }
+
+    pub async fn resume_download(&self, gid: &str) -> Result<String, String> {
+        let map = self.tasks.read().await;
+        let task = map.get(gid).ok_or_else(|| "Download not found".to_string())?;
+        task.pause_flag.store(false, Ordering::Relaxed);
+        *task.status.write().await = DownloadStatus::Active;
+        Ok(gid.to_string())
+    }
+
+    pub async fn cancel_download(&self, gid: &str) -> Result<String, String> {
+        let mut map = self.tasks.write().await;
+        if let Some(task) = map.remove(gid) {
+            task.cancel_flag.store(true, Ordering::Relaxed);
+            *task.status.write().await = DownloadStatus::Removed;
+            // Clean up partial file on disk
+            let _ = tokio::fs::remove_file(&task.filepath).await;
+        }
+        Ok(gid.to_string())
+    }
+
+    pub async fn get_all_downloads(&self) -> Result<Vec<DownloadInfo>, String> {
+        let map = self.tasks.read().await;
+        let mut list = Vec::new();
+
+        for task in map.values() {
+            let downloaded = task.downloaded.load(Ordering::Relaxed);
+            let total = task.total_size.load(Ordering::Relaxed);
+            let speed = task.speed.load(Ordering::Relaxed);
+            let status = task.status.read().await.clone();
+            let error = task.error_message.read().await.clone();
+
+            let progress = if total == 0 {
+                0.0
+            } else {
+                ((downloaded as f64 / total as f64) * 100.0).min(100.0)
+            };
+
+            list.push(DownloadInfo {
+                gid: task.gid.clone(),
+                filename: task.filename.clone(),
+                total_size: total,
+                downloaded,
+                speed,
+                progress,
+                status,
+                error_message: error,
+            });
+        }
+
+        Ok(list)
+    }
+
+    fn extract_filename_from_url(url: &str) -> String {
+        if let Ok(parsed) = url::Url::parse(url) {
+            if let Some(mut segments) = parsed.path_segments() {
+                if let Some(last) = segments.next_back() {
+                    let decoded = urlencoding::decode(last).unwrap_or_default().to_string();
+                    if !decoded.trim().is_empty() {
+                        return decoded;
+                    }
+                }
+            }
+        }
+        format!("terabox_download_{}.bin", uuid::Uuid::new_v4().to_string().chars().take(8).collect::<String>())
+    }
+}
