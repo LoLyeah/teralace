@@ -1,7 +1,7 @@
 use crate::terabox::load_balancer::{InternalEndpoint, LoadBalancer};
 use crate::terabox::normalizer::normalize_terabox_url;
 use crate::terabox::types::*;
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, CACHE_CONTROL, COOKIE, ORIGIN, REFERER, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, CACHE_CONTROL, CONTENT_TYPE, COOKIE, ORIGIN, REFERER, USER_AGENT};
 use reqwest::Client;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -354,12 +354,67 @@ impl TeraboxApi {
             });
         }
 
+        // Extract metadata from shareInfo
+        let share_info = state.get("share").and_then(|s| s.get("shareInfo"));
+        let shareid = share_info
+            .and_then(|si| si.get("shareid"))
+            .and_then(|sid| sid.as_i64().or_else(|| sid.as_str().and_then(|s| s.parse().ok())))
+            .unwrap_or(0);
+        let uk = share_info
+            .and_then(|si| si.get("uk"))
+            .and_then(|u| u.as_i64().or_else(|| u.as_str().and_then(|s| s.parse().ok())))
+            .unwrap_or(0);
+        let sign = share_info
+            .and_then(|si| si.get("sign"))
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+        let timestamp = share_info
+            .and_then(|si| si.get("timestamp"))
+            .and_then(|t| t.as_i64().or_else(|| t.as_str().and_then(|s| s.parse().ok())))
+            .unwrap_or(0);
+        let files_total = share_info
+            .and_then(|si| si.get("filesTotal"))
+            .and_then(|ft| ft.as_i64().or_else(|| ft.as_str().and_then(|s| s.parse().ok())))
+            .unwrap_or(files.len() as i64);
+
+        // TeraBox WAP SSR only renders the first 20 items in HTML.
+        // If filesTotal > files.len() or files.len() >= 20, fetch remaining files via share/list pagination!
+        if (files_total as usize) > files.len() || files.len() >= 20 {
+            log::info!(
+                "[WAP] filesTotal ({}) > current count ({}), fetching remaining files via pagination",
+                files_total,
+                files.len()
+            );
+            let mut page = 1;
+            while (files_total as usize) > files.len() && page <= 20 {
+                if let Ok(paged) = self.fetch_share_list_paged(clean_surl, user_cookie, page, 100).await {
+                    if paged.is_empty() {
+                        break;
+                    }
+                    let mut added = false;
+                    for item in paged {
+                        if !files.iter().any(|f| f.fs_id == item.fs_id) {
+                            files.push(item);
+                            added = true;
+                        }
+                    }
+                    if !added {
+                        break;
+                    }
+                    page += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+
         Ok(TeraboxInfo {
             ok: true,
-            shareid: 0,
-            uk: 0,
-            sign: String::new(),
-            timestamp: 0,
+            shareid,
+            uk,
+            sign,
+            timestamp,
             list: files,
             error_message: None,
             resolved_by: Some("Direct TeraBox WAP Scraper".to_string()),
@@ -513,6 +568,124 @@ impl TeraboxApi {
         Ok(folder_files)
     }
 
+    /// Fetches a specific page of files from TeraBox share list API
+    async fn fetch_share_list_paged(
+        &self,
+        clean_surl: &str,
+        user_cookie: Option<&str>,
+        page: u32,
+        num: u32,
+    ) -> Result<Vec<TeraboxFileInfo>, String> {
+        let hosts = ["www.terabox.com", "www.terabox.app"];
+        let mut last_err = String::new();
+
+        for host in &hosts {
+            let api_url = format!(
+                "https://{}/share/list?app_id=250528&shorturl={}&root=1&page={}&num={}",
+                host, clean_surl, page, num
+            );
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                USER_AGENT,
+                HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+            );
+            headers.insert(REFERER, HeaderValue::from_str(&format!("https://{}/", host)).unwrap());
+            headers.insert(ORIGIN, HeaderValue::from_str(&format!("https://{}", host)).unwrap());
+
+            if let Some(cookie) = user_cookie {
+                let cookie_str = cookie.trim();
+                if !cookie_str.is_empty() {
+                    let formatted = if cookie_str.contains('=') {
+                        cookie_str.to_string()
+                    } else {
+                        format!("ndus={}", cookie_str)
+                    };
+                    if let Ok(c_val) = HeaderValue::from_str(&formatted) {
+                        headers.insert(COOKIE, c_val);
+                    }
+                }
+            }
+
+            match self.client.get(&api_url).headers(headers).send().await {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        if let Ok(text) = resp.text().await {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                                if v.get("errno").and_then(|e| e.as_i64()) == Some(0) {
+                                    if let Some(list_val) = v.get("list").and_then(|l| l.as_array()) {
+                                        let mut files = Vec::new();
+                                        for item in list_val {
+                                            let name = item
+                                                .get("server_filename")
+                                                .and_then(|n| n.as_str())
+                                                .unwrap_or("file")
+                                                .to_string();
+                                            let fs_id = item
+                                                .get("fs_id")
+                                                .map(|f| f.to_string())
+                                                .unwrap_or_default();
+                                            let size = item
+                                                .get("size")
+                                                .and_then(|s| s.as_i64())
+                                                .or_else(|| {
+                                                    item.get("size")
+                                                        .and_then(|s| s.as_str())
+                                                        .and_then(|s| s.parse().ok())
+                                                });
+                                            let is_dir = match item.get("isdir") {
+                                                Some(serde_json::Value::Number(n)) => n.as_i64() == Some(1),
+                                                Some(serde_json::Value::String(s)) => s == "1" || s == "true",
+                                                Some(serde_json::Value::Bool(b)) => *b,
+                                                _ => false,
+                                            };
+                                            let dlink = item
+                                                .get("dlink")
+                                                .and_then(|d| d.as_str())
+                                                .map(|s| s.to_string());
+                                            let thumb = item
+                                                .get("thumbs")
+                                                .and_then(|t| t.get("url3").or_else(|| t.get("url2")).or_else(|| t.get("url1")))
+                                                .and_then(|u| u.as_str())
+                                                .map(|s| s.to_string());
+
+                                            let file_type = if is_dir {
+                                                "folder".to_string()
+                                            } else {
+                                                Self::detect_file_type(&name)
+                                            };
+
+                                            files.push(TeraboxFileInfo {
+                                                is_dir,
+                                                fs_id,
+                                                name,
+                                                file_type,
+                                                size,
+                                                size_formatted: None,
+                                                category: item.get("category").and_then(|c| c.as_str()).map(|s| s.to_string()),
+                                                create_time: item.get("server_mtime").and_then(|m| m.as_i64()),
+                                                thumb,
+                                                direct_link: dlink,
+                                            });
+                                        }
+                                        return Ok(files);
+                                    }
+                                } else {
+                                    last_err = format!("errno {:?}", v.get("errno"));
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    last_err = e.to_string();
+                }
+            }
+        }
+
+        Err(format!("fetch_share_list_paged failed: {}", last_err))
+    }
+
     /// Direct TeraBox mobile/web API scraper fallback with optional cookie
     async fn fetch_direct_terabox(
         &self,
@@ -531,7 +704,7 @@ impl TeraboxApi {
             return Ok(info);
         }
         let api_url = format!(
-            "https://www.terabox.app/share/list?app_id=250528&shorturl={}&root=1",
+            "https://www.terabox.app/share/list?app_id=250528&shorturl={}&root=1&page=1&num=100",
             clean_surl
         );
 
@@ -689,8 +862,85 @@ impl TeraboxApi {
         })
     }
 
+    /// Requests direct download link via TeraBox sharedownload API
+    async fn fetch_direct_sharedownload(
+        &self,
+        params: &DownloadParams,
+        user_cookie: Option<&str>,
+    ) -> Result<String, String> {
+        let post_data = format!(
+            "encrypt=0&extra=%7B%22sekey%22%3A%22%22%7D&fid_list=%5B{}%5D&primaryid={}&uk={}&product=share&type=nolimit",
+            params.fs_id, params.shareid, params.uk
+        );
+
+        let endpoints = [
+            ("dm.terabox.com", "https://dm.terabox.com/"),
+            ("www.terabox.app", "https://www.terabox.app/"),
+            ("www.terabox.com", "https://www.terabox.com/"),
+        ];
+
+        for (host, referer) in &endpoints {
+            let url = format!(
+                "https://{}/api/sharedownload?app_id=250528&web=1&channel=dubox&clienttype=0&sign={}&timestamp={}",
+                host, params.sign, params.timestamp
+            );
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                USER_AGENT,
+                HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+            );
+            headers.insert(REFERER, HeaderValue::from_str(referer).unwrap());
+            headers.insert(ORIGIN, HeaderValue::from_str(&referer[..referer.len() - 1]).unwrap());
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/x-www-form-urlencoded"));
+
+            if let Some(cookie) = user_cookie {
+                let cookie_str = cookie.trim();
+                if !cookie_str.is_empty() {
+                    let formatted = if cookie_str.contains('=') {
+                        cookie_str.to_string()
+                    } else {
+                        format!("ndus={}", cookie_str)
+                    };
+                    if let Ok(c_val) = HeaderValue::from_str(&formatted) {
+                        headers.insert(COOKIE, c_val);
+                    }
+                }
+            }
+
+            if let Ok(resp) = self.client.post(&url).headers(headers).body(post_data.clone()).send().await {
+                if resp.status().is_success() {
+                    if let Ok(text) = resp.text().await {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if v.get("errno").and_then(|e| e.as_i64()) == Some(0) {
+                                if let Some(dlink) = v
+                                    .get("list")
+                                    .and_then(|l| l.as_array())
+                                    .and_then(|arr| arr.first())
+                                    .and_then(|item| item.get("dlink"))
+                                    .and_then(|d| d.as_str())
+                                {
+                                    if !dlink.is_empty() {
+                                        log::info!("[sharedownload] Successfully resolved dlink via {}", host);
+                                        return Ok(dlink.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Err("Failed to resolve direct download link via TeraBox API".to_string())
+    }
+
     /// Resolves the final direct download link for a file
-    pub async fn get_download_link(&self, params: DownloadParams) -> Result<DownloadLink, String> {
+    pub async fn get_download_link(
+        &self,
+        params: DownloadParams,
+        user_cookie: Option<&str>,
+    ) -> Result<DownloadLink, String> {
         // If direct_link was already resolved during get_info, return it immediately!
         if let Some(dl) = params.direct_link {
             if !dl.trim().is_empty() {
@@ -702,7 +952,19 @@ impl TeraboxApi {
             }
         }
 
-        // Otherwise, request download link from worker endpoints
+        // 1. Try direct TeraBox sharedownload API first (high speed, avoids Cloudflare challenge)!
+        if params.shareid != 0 && params.uk != 0 && !params.sign.is_empty() && params.timestamp != 0 {
+            log::info!("[get_download_link] Attempting direct sharedownload API for fs_id={}", params.fs_id);
+            if let Ok(dl) = self.fetch_direct_sharedownload(&params, user_cookie).await {
+                return Ok(DownloadLink {
+                    ok: true,
+                    download_link: Some(dl),
+                    error_message: None,
+                });
+            }
+        }
+
+        // 2. Otherwise, request download link from worker endpoints as fallback
         let worker_base = "https://terabox.hnn.workers.dev";
         let endpoint = if params.mode == 1 {
             "/api/get-download"

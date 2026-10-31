@@ -55,8 +55,14 @@ async fn get_terabox_info(handle: tauri::AppHandle, url: String) -> Result<Terab
 }
 
 #[tauri::command]
-async fn get_download_link(params: DownloadParams) -> Result<DownloadLink, String> {
-    TERABOX_API.get_download_link(params).await
+async fn get_download_link(
+    handle: tauri::AppHandle,
+    params: DownloadParams,
+) -> Result<DownloadLink, String> {
+    let settings = get_settings(&handle);
+    TERABOX_API
+        .get_download_link(params, settings.terabox_cookie.as_deref())
+        .await
 }
 
 #[tauri::command]
@@ -85,13 +91,29 @@ async fn save_api_endpoints(
 
 #[tauri::command]
 async fn add_download(
+    handle: tauri::AppHandle,
     url: String,
     dir: Option<String>,
     filename: Option<String>,
 ) -> Result<String, String> {
+    let settings = get_settings(&handle);
+    let mut headers = Vec::new();
+    if let Some(cookie) = &settings.terabox_cookie {
+        let cookie_str = cookie.trim();
+        if !cookie_str.is_empty() {
+            let formatted = if cookie_str.contains('=') {
+                cookie_str.to_string()
+            } else {
+                format!("ndus={}", cookie_str)
+            };
+            headers.push(("Cookie".to_string(), formatted));
+        }
+    }
+
     let options = DownloadOptions {
         dir,
         out: filename,
+        headers: if headers.is_empty() { None } else { Some(headers) },
         ..Default::default()
     };
     DOWNLOAD_MANAGER.add_download(&url, Some(options)).await

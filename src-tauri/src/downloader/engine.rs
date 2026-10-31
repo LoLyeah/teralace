@@ -26,6 +26,7 @@ pub struct DownloadTask {
     pub error_message: Arc<RwLock<Option<String>>>,
     pub cancel_flag: Arc<AtomicBool>,
     pub pause_flag: Arc<AtomicBool>,
+    pub headers: Vec<(String, String)>,
 }
 
 pub struct DownloadManager {
@@ -95,6 +96,7 @@ impl DownloadManager {
         };
 
         let filepath = target_dir.join(&filename);
+        let headers = opts.headers.unwrap_or_default();
 
         let task = DownloadTask {
             gid: gid.clone(),
@@ -108,6 +110,7 @@ impl DownloadManager {
             error_message: Arc::new(RwLock::new(None)),
             cancel_flag: Arc::new(AtomicBool::new(false)),
             pause_flag: Arc::new(AtomicBool::new(false)),
+            headers,
         };
 
         {
@@ -127,11 +130,14 @@ impl DownloadManager {
 
     async fn run_download_task(client: Client, task: DownloadTask, max_conn: usize) {
         // 1. Probe remote file length & byte ranges support
-        let probe_res = client
+        let mut probe_builder = client
             .head(&task.url)
-            .header(USER_AGENT, CHUNK_USER_AGENT).header(REFERER, "https://www.terabox.app/")
-            .send()
-            .await;
+            .header(USER_AGENT, CHUNK_USER_AGENT)
+            .header(REFERER, "https://dm.terabox.com/");
+        for (k, v) in &task.headers {
+            probe_builder = probe_builder.header(k, v);
+        }
+        let probe_res = probe_builder.send().await;
 
         let mut total_size: u64 = 0;
         let mut supports_range = false;
@@ -153,13 +159,15 @@ impl DownloadManager {
 
         // Fallback probe via Range: bytes=0-0 GET
         if total_size == 0 {
-            if let Ok(resp) = client
+            let mut get_probe = client
                 .get(&task.url)
                 .header(RANGE, "bytes=0-0")
-                .header(USER_AGENT, CHUNK_USER_AGENT).header(REFERER, "https://www.terabox.app/")
-                .send()
-                .await
-            {
+                .header(USER_AGENT, CHUNK_USER_AGENT)
+                .header(REFERER, "https://dm.terabox.com/");
+            for (k, v) in &task.headers {
+                get_probe = get_probe.header(k, v);
+            }
+            if let Ok(resp) = get_probe.send().await {
                 if resp.status().as_u16() == 206 {
                     supports_range = true;
                     if let Some(cr) = resp.headers().get("content-range") {
@@ -307,10 +315,15 @@ impl DownloadManager {
         end: u64,
     ) -> Result<(), String> {
         let range_val = format!("bytes={}-{}", start, end);
-        let resp = client
+        let mut req = client
             .get(&task.url)
             .header(RANGE, range_val)
-            .header(USER_AGENT, CHUNK_USER_AGENT).header(REFERER, "https://www.terabox.app/")
+            .header(USER_AGENT, CHUNK_USER_AGENT)
+            .header(REFERER, "https://dm.terabox.com/");
+        for (k, v) in &task.headers {
+            req = req.header(k, v);
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| format!("Range request failed: {}", e))?;
@@ -354,9 +367,14 @@ impl DownloadManager {
 
     /// Single stream download fallback
     async fn download_single_stream(client: &Client, task: &DownloadTask) -> Result<(), String> {
-        let resp = client
+        let mut req = client
             .get(&task.url)
-            .header(USER_AGENT, CHUNK_USER_AGENT).header(REFERER, "https://www.terabox.app/")
+            .header(USER_AGENT, CHUNK_USER_AGENT)
+            .header(REFERER, "https://dm.terabox.com/");
+        for (k, v) in &task.headers {
+            req = req.header(k, v);
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| format!("Request failed: {}", e))?;
