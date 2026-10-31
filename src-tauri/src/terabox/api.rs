@@ -942,11 +942,11 @@ impl TeraboxApi {
         user_cookie: Option<&str>,
     ) -> Result<DownloadLink, String> {
         // If direct_link was already resolved during get_info, return it immediately!
-        if let Some(dl) = params.direct_link {
+        if let Some(ref dl) = params.direct_link {
             if !dl.trim().is_empty() {
                 return Ok(DownloadLink {
                     ok: true,
-                    download_link: Some(dl),
+                    download_link: Some(dl.clone()),
                     error_message: None,
                 });
             }
