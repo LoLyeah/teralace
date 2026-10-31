@@ -113,6 +113,7 @@ To download private folders or bypass anonymous bandwidth throttles:
 
 ## Thanks to
 [abdul197233/Terabox Downloader](https://github.com/abdul97233/TeraBox-Downloader-Bot) for the Terabox fetch engine
+If you want to use the Telegram Bot version, please visit abdul197233 version!
 
 ---
 
