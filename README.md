@@ -113,6 +113,8 @@ To download private folders or bypass anonymous bandwidth throttles:
 
 ## Thanks to
 [abdul197233/Terabox Downloader](https://github.com/abdul97233/TeraBox-Downloader-Bot) for the Terabox fetch engine
+
 ---
+
 ## 📄 License
 GNU General Public License v3.0 (GPL-3.0).
