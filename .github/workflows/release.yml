@@ -96,13 +96,12 @@ jobs:
           if [ ! -d "src-tauri/gen/android" ]; then
             npx tauri android init --ci
           fi
-          MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST" ]; then
-            sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' "$MANIFEST"
-          fi
+          node scripts/inject_android_perms.cjs
 
       - name: Build Android Release APK
-        run: npx tauri android build --apk --target aarch64 --ci
+        run: |
+          chmod +x src-tauri/gen/android/gradlew || true
+          npx tauri android build --apk --target aarch64 --ci
 
       - name: Upload Android APK
         uses: softprops/action-gh-release@v2
