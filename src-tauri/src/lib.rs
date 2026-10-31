@@ -1,4 +1,3 @@
-mod aria2;
 mod downloader;
 mod settings;
 mod terabox;
@@ -27,7 +26,7 @@ static TERABOX_API: LazyLock<TeraboxApi> = LazyLock::new(|| {
 
 fn get_settings(handle: &tauri::AppHandle) -> AppSettings {
     if let Ok(store) = handle.store("settings") {
-        if let Ok(Some(value)) = store.get("app_settings") {
+        if let Some(value) = store.get("app_settings") {
             return serde_json::from_value(value).unwrap_or_default();
         }
     }

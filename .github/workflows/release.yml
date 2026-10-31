@@ -35,8 +35,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install Frontend Dependencies
-        run: npm install
+      - name: Install Frontend Dependencies & Build Bundle
+        run: |
+          npm install
+          npm run build
 
       - name: Build Desktop Release
         uses: tauri-apps/tauri-action@v1
@@ -84,8 +86,10 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
 
-      - name: Install Frontend Dependencies
-        run: npm install
+      - name: Install Frontend Dependencies & Build Bundle
+        run: |
+          npm install
+          npm run build
 
       - name: Initialize Android Target & Inject Permissions
         run: |
