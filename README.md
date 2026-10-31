@@ -24,9 +24,10 @@ Pre-built binaries are available for desktop and mobile directly on the **[Relea
 
 | Platform | Format | Architecture | Download Link |
 |:---|:---|:---|:---|
-| **Windows** | Setup `.exe` / `.msi` | x86_64 | [Latest Windows Release](https://github.com/LoLyeah/teralace/releases/latest) |
-| **macOS** | `.dmg` Installer | Apple Silicon (`aarch64`) & Intel (`x64`) | [Latest macOS Release](https://github.com/LoLyeah/teralace/releases/latest) |
-| **Android** | Package `.apk` | ARM64 (`arm64-v8a`) | [Latest Android APK](https://github.com/LoLyeah/teralace/releases/latest) |
+| **Windows (Installer)** | Setup `.exe` / `.msi` | x86_64 | [Latest Windows Installer](https://github.com/LoLyeah/teralace/releases/latest) |
+| **Windows (Portable)** | Standalone `.exe` / `.zip` | x86_64 | [Latest Windows Portable](https://github.com/LoLyeah/teralace/releases/latest) |
+| **macOS** | Universal `.dmg` / `.app.tar.gz` | Apple Silicon (`aarch64`) & Intel (`x64`) | [Latest macOS Release](https://github.com/LoLyeah/teralace/releases/latest) |
+| **Android** | Signed Package `.apk` | ARM64 (`arm64-v8a`) | [Latest Android APK](https://github.com/LoLyeah/teralace/releases/latest) |
 
 ---
 
