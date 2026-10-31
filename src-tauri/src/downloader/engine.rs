@@ -1,15 +1,13 @@
 use crate::downloader::types::{DownloadInfo, DownloadOptions, DownloadStatus};
 use futures_util::StreamExt;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT_RANGES, CONTENT_LENGTH, RANGE, USER_AGENT};
+use reqwest::header::{ACCEPT_RANGES, CONTENT_LENGTH, RANGE, USER_AGENT};
 use reqwest::Client;
 use std::collections::HashMap;
-use std::io::SeekFrom;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::fs::OpenOptions;
-use tokio::io::AsyncSeekExt;
+use std::time::Duration;
+use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 
@@ -65,10 +63,10 @@ impl DownloadManager {
 
     pub async fn set_max_connections(&self, count: usize) {
         let mut c = self.max_connections.write().await;
-        *c = count.clamp(1, 32);
+        *c = count.clamp(1, 16);
     }
 
-    /// Adds and immediately starts a new download
+    /// Adds and immediately begins a new download
     pub async fn add_download(
         &self,
         url: &str,
@@ -83,7 +81,7 @@ impl DownloadManager {
             self.get_default_dir().await
         };
 
-        // Ensure destination directory exists
+        // Ensure destination folder exists
         tokio::fs::create_dir_all(&target_dir)
             .await
             .map_err(|e| format!("Failed to create download folder: {}", e))?;
@@ -115,7 +113,7 @@ impl DownloadManager {
             map.insert(gid.clone(), task.clone());
         }
 
-        // Spawn async download worker
+        // Spawn async worker
         let client = self.client.clone();
         let max_conn = *self.max_connections.read().await;
         tokio::spawn(async move {
@@ -125,9 +123,8 @@ impl DownloadManager {
         Ok(gid)
     }
 
-    /// Task executor with chunked range downloading
     async fn run_download_task(client: Client, task: DownloadTask, max_conn: usize) {
-        // 1. Probe remote file
+        // 1. Probe remote file length & byte ranges support
         let probe_res = client
             .head(&task.url)
             .header(USER_AGENT, "Mozilla/5.0")
@@ -152,7 +149,7 @@ impl DownloadManager {
             }
         }
 
-        // If HEAD didn't yield size, try GET with Range: bytes=0-0
+        // Fallback probe via Range: bytes=0-0 GET
         if total_size == 0 {
             if let Ok(resp) = client
                 .get(&task.url)
@@ -176,20 +173,7 @@ impl DownloadManager {
 
         task.total_size.store(total_size, Ordering::SeqCst);
 
-        // Pre-create output file
-        if let Err(e) = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&task.filepath)
-            .await
-        {
-            *task.status.write().await = DownloadStatus::Error;
-            *task.error_message.write().await = Some(format!("Failed to create file: {}", e));
-            return;
-        }
-
-        // Spawn speed monitor
+        // Speed calculator task
         let task_clone = task.clone();
         let monitor_handle = tokio::spawn(async move {
             let mut last_downloaded = 0u64;
@@ -210,9 +194,9 @@ impl DownloadManager {
             }
         });
 
-        // 2. Download Execution: Multi-chunk if range supported, else single stream
-        let download_result = if supports_range && total_size > 1024 * 1024 {
-            Self::download_chunked(&client, &task, total_size, max_conn).await
+        // 2. Execute Download: Multi-chunk with parts merging or single stream
+        let download_result = if supports_range && total_size > 2 * 1024 * 1024 {
+            Self::download_chunked_parts(&client, &task, total_size, max_conn).await
         } else {
             Self::download_single_stream(&client, &task).await
         };
@@ -235,8 +219,8 @@ impl DownloadManager {
         }
     }
 
-    /// Downloads file using parallel HTTP Range chunks
-    async fn download_chunked(
+    /// Parallel chunk downloading with separate part files & final assembly
+    async fn download_chunked_parts(
         client: &Client,
         task: &DownloadTask,
         total_size: u64,
@@ -245,6 +229,7 @@ impl DownloadManager {
         let chunk_count = max_conn.clamp(2, 16);
         let chunk_size = total_size / (chunk_count as u64);
         let mut handles = Vec::new();
+        let mut part_paths = Vec::new();
 
         for i in 0..chunk_count {
             let start = i as u64 * chunk_size;
@@ -254,30 +239,68 @@ impl DownloadManager {
                 (i as u64 + 1) * chunk_size - 1
             };
 
+            let part_path = task.filepath.with_extension(format!("part{}", i));
+            part_paths.push(part_path.clone());
+
             let client_c = client.clone();
             let task_c = task.clone();
-            let path_c = task.filepath.clone();
 
             handles.push(tokio::spawn(async move {
-                Self::download_range_segment(client_c, task_c, path_c, start, end).await
+                Self::download_part(client_c, task_c, part_path, start, end).await
             }));
         }
 
+        // Wait for all parts to complete
         for handle in handles {
             match handle.await {
                 Ok(Ok(_)) => (),
-                Ok(Err(e)) => return Err(e),
-                Err(join_err) => return Err(format!("Chunk worker error: {}", join_err)),
+                Ok(Err(e)) => {
+                    Self::cleanup_parts(&part_paths).await;
+                    return Err(e);
+                }
+                Err(join_err) => {
+                    Self::cleanup_parts(&part_paths).await;
+                    return Err(format!("Chunk worker error: {}", join_err));
+                }
             }
         }
+
+        if task.cancel_flag.load(Ordering::Relaxed) {
+            Self::cleanup_parts(&part_paths).await;
+            return Ok(());
+        }
+
+        // Merge all parts into final destination file
+        let mut final_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&task.filepath)
+            .await
+            .map_err(|e| format!("Failed to create final assembled file: {}", e))?;
+
+        for part in &part_paths {
+            let mut part_file = File::open(part)
+                .await
+                .map_err(|e| format!("Failed to open part file: {}", e))?;
+
+            tokio::io::copy(&mut part_file, &mut final_file)
+                .await
+                .map_err(|e| format!("Failed to merge part file: {}", e))?;
+        }
+
+        final_file.flush().await.map_err(|e| e.to_string())?;
+
+        // Cleanup temporary parts
+        Self::cleanup_parts(&part_paths).await;
 
         Ok(())
     }
 
-    async fn download_range_segment(
+    async fn download_part(
         client: Client,
         task: DownloadTask,
-        filepath: PathBuf,
+        part_path: PathBuf,
         start: u64,
         end: u64,
     ) -> Result<(), String> {
@@ -295,14 +318,12 @@ impl DownloadManager {
         }
 
         let mut file = OpenOptions::new()
+            .create(true)
             .write(true)
-            .open(&filepath)
+            .truncate(true)
+            .open(&part_path)
             .await
-            .map_err(|e| format!("Failed to open file: {}", e))?;
-
-        file.seek(SeekFrom::Start(start))
-            .await
-            .map_err(|e| format!("Failed to seek file: {}", e))?;
+            .map_err(|e| format!("Failed to open part file: {}", e))?;
 
         let mut stream = resp.bytes_stream();
         while let Some(chunk_res) = stream.next().await {
@@ -317,10 +338,10 @@ impl DownloadManager {
                 }
             }
 
-            let chunk = chunk_res.map_err(|e| format!("Read chunk error: {}", e))?;
+            let chunk = chunk_res.map_err(|e| format!("Read error: {}", e))?;
             file.write_all(&chunk)
                 .await
-                .map_err(|e| format!("Write chunk error: {}", e))?;
+                .map_err(|e| format!("Write error: {}", e))?;
 
             task.downloaded.fetch_add(chunk.len() as u64, Ordering::Relaxed);
         }
@@ -343,7 +364,9 @@ impl DownloadManager {
         }
 
         let mut file = OpenOptions::new()
+            .create(true)
             .write(true)
+            .truncate(true)
             .open(&task.filepath)
             .await
             .map_err(|e| format!("Failed to open output file: {}", e))?;
@@ -371,6 +394,12 @@ impl DownloadManager {
 
         file.flush().await.map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    async fn cleanup_parts(paths: &[PathBuf]) {
+        for p in paths {
+            let _ = tokio::fs::remove_file(p).await;
+        }
     }
 
     pub async fn get_status(&self, gid: &str) -> Result<DownloadInfo, String> {
@@ -422,7 +451,6 @@ impl DownloadManager {
         if let Some(task) = map.remove(gid) {
             task.cancel_flag.store(true, Ordering::Relaxed);
             *task.status.write().await = DownloadStatus::Removed;
-            // Clean up partial file on disk
             let _ = tokio::fs::remove_file(&task.filepath).await;
         }
         Ok(gid.to_string())
