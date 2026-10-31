@@ -26,13 +26,41 @@ jobs:
 
   check-rust:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build Frontend First
+        run: |
+          npm install
+          npm run build
 
       - name: Setup Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cargo Check
+      - name: Cargo Check and Capture Log
+        shell: bash
         run: |
           cd src-tauri
-          cargo check
+          cargo check > ../cargo_check.log 2>&1 || true
+          cd ..
+          echo "## Cargo Check Result" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat cargo_check.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B debug-cargo
+          git add cargo_check.log
+          git commit -m "debug: cargo check output" || true
+          git push -f origin debug-cargo || true
+          if grep -q "error" cargo_check.log; then
+            cat cargo_check.log
+            exit 1
+          fi
