@@ -50,17 +50,30 @@ jobs:
           cd src-tauri
           cargo check > ../cargo_check.log 2>&1 || true
           cd ..
-          echo "## Cargo Check Result" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat cargo_check.log >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat cargo_check.log
+
+      - name: Upload Cargo Check Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-check-log
+          path: cargo_check.log
+
+      - name: Push Log to debug-cargo Branch
+        if: always()
+        shell: bash
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B debug-cargo
-          git add cargo_check.log
+          git add -f cargo_check.log
           git commit -m "debug: cargo check output" || true
-          git push -f origin debug-cargo || true
-          if grep -q "error" cargo_check.log; then
-            cat cargo_check.log
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" debug-cargo || true
+
+      - name: Verify Check Status
+        shell: bash
+        run: |
+          if grep -q "error:" cargo_check.log; then
+            echo "Cargo check failed with errors!"
             exit 1
           fi
