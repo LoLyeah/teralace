@@ -318,12 +318,12 @@ export function DashboardLayout() {
             <img 
               src="/logo.svg" 
               alt="TeraLace Logo" 
-              className="w-8 h-8 rounded-xl object-contain drop-shadow-[0_2px_8px_rgba(2,132,199,0.35)] transition-transform duration-300 group-hover:scale-105"
+              className="w-8 h-8 rounded-xl object-contain transition-transform duration-200 group-hover:scale-105"
             />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-extrabold text-base md:text-lg tracking-tight bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-500 bg-clip-text text-transparent">
+              <span className="font-bold text-base md:text-lg tracking-tight text-foreground">
                 TeraLace
               </span>
               <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-full font-mono font-medium">
@@ -442,7 +442,7 @@ export function DashboardLayout() {
           <Card className="shrink-0 border-border/70 shadow-sm bg-card/70 backdrop-blur-sm">
             <CardHeader className="pb-2 pt-3 px-3.5 md:px-4">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <CardTitle className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                   <Link className="h-3.5 w-3.5 text-primary" /> Share Link
                 </CardTitle>
                 {teraboxInfo?.resolved_by && (
@@ -520,8 +520,8 @@ export function DashboardLayout() {
           {/* File Explorer Card */}
           <Card className="flex-1 flex flex-col overflow-hidden border-border/70 shadow-sm bg-card/70 backdrop-blur-sm">
             <CardHeader className="py-2.5 px-3.5 md:px-4 border-b border-border/60 flex flex-row items-center justify-between shrink-0 bg-muted/20">
-              <CardTitle className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                <Layers className="h-3.5 w-3.5" />
+              <CardTitle className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Layers className="h-3.5 w-3.5 text-primary" />
                 <span>Files {teraboxInfo && `(${teraboxInfo.list.length})`}</span>
               </CardTitle>
               {teraboxInfo && (
@@ -581,7 +581,7 @@ export function DashboardLayout() {
             {/* Queue Header */}
             <CardHeader className="py-2.5 px-3.5 md:px-4 border-b border-border/60 flex flex-row items-center justify-between bg-muted/20 shrink-0">
               <div className="flex items-center gap-2">
-                <CardTitle className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                <CardTitle className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                   <FileDown className="h-3.5 w-3.5 text-primary" /> Download Queue
                 </CardTitle>
                 <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-mono font-bold">
@@ -1079,14 +1079,6 @@ function QueueItemRow({
       isActive ? "bg-primary/5" : "hover:bg-accent/30",
       item.status === 'completed' && "opacity-90 bg-muted/10"
     )}>
-      {/* Status Accent Bar */}
-      <div className={cn(
-        "w-1 h-10 rounded-full shrink-0 transition-colors",
-        item.status === 'completed' ? "bg-emerald-500" :
-        item.status === 'error' ? "bg-destructive" :
-        isActive ? "bg-primary animate-pulse" : "bg-muted-foreground/30"
-      )} />
-      
       <div className="flex-1 min-w-0">
         {/* Name & Quick Controls */}
         <div className="flex justify-between items-center mb-1.5">
@@ -1125,7 +1117,7 @@ function QueueItemRow({
             )}
 
             <span className={cn(
-              "text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ml-1",
+              "text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ml-1 tabular-nums",
               item.status === 'completed' ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" :
               item.status === 'error' ? "bg-destructive/10 text-destructive border border-destructive/20" :
               isActive ? "bg-primary/10 text-primary border border-primary/20" :
@@ -1151,27 +1143,27 @@ function QueueItemRow({
           </div>
         </div>
         
-        {/* Sleek Gradient Progress Bar */}
+        {/* Solid Progress Bar (No generic AI gradient text or bars) */}
         <div className="h-1.5 bg-muted/60 rounded-full overflow-hidden">
           <div 
             className={cn(
               "h-full transition-all duration-300",
               item.status === 'error' ? "bg-destructive" : 
               item.status === 'completed' ? "bg-emerald-500" : 
-              "bg-gradient-to-r from-sky-500 to-indigo-500"
+              "bg-primary"
             )}
             style={{ width: `${Math.min(item.progress, 100)}%` }}
           />
         </div>
         
-        {/* Telemetry Row */}
-        <div className="flex justify-between items-center mt-1 text-[11px] text-muted-foreground font-mono">
+        {/* Telemetry Row with tabular numbers */}
+        <div className="flex justify-between items-center mt-1 text-[11px] text-muted-foreground font-mono tabular-nums">
           <span>{formatBytes(item.downloaded)} / {formatBytes(item.total)}</span>
           
           <div className="flex items-center gap-2">
             {isActive && item.speed > 0 && (
               <>
-                <span className="text-[10px] text-muted-foreground/75">
+                <span className="text-[10px] text-muted-foreground/80">
                   ETA: {formatEta(item.total, item.downloaded, item.speed)}
                 </span>
                 <span className="text-primary font-semibold">

@@ -75,8 +75,14 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+    caret-color: hsl(var(--primary));
+    text-underline-offset: 3px;
     user-select: none;
     -webkit-user-select: none;
+  }
+  ::selection {
+    background-color: hsl(var(--primary) / 0.25);
+    color: inherit;
   }
   input, textarea, [contenteditable="true"] {
     user-select: text;
