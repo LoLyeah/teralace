@@ -116,8 +116,17 @@ export function FileList({
       {/* File List Items */}
       <div className="flex-1 overflow-y-auto space-y-1 pr-0.5" role="list" aria-label="Files list">
         {filteredFiles.length === 0 ? (
-          <div className="text-center py-6 text-muted-foreground text-xs">
-            No files match your filter
+          <div className="text-center py-8 text-muted-foreground text-xs space-y-2">
+            <p>No files match your search</p>
+            {(searchQuery || activeCategory !== "all") && (
+              <button
+                type="button"
+                onClick={() => { setSearchQuery(""); setActiveCategory("all"); }}
+                className="text-primary hover:underline text-[11px] font-medium"
+              >
+                Reset filter
+              </button>
+            )}
           </div>
         ) : (
           filteredFiles.map((file) => (
