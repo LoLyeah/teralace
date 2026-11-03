@@ -67,6 +67,7 @@ export function DashboardLayout() {
     startQueue,
     pauseQueue,
     removeFromQueue,
+    retryItem,
     isProcessing,
     clearCompleted,
     clearAll,
@@ -232,6 +233,21 @@ export function DashboardLayout() {
     };
   }, []);
 
+  // Dismiss active modals on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (previewMediaUrl) {
+          setPreviewMediaUrl(null);
+        } else if (showSettings) {
+          setShowSettings(false);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [previewMediaUrl, showSettings]);
+
   const handleBrowse = async () => {
     try {
       const selected = await open({
@@ -345,8 +361,18 @@ export function DashboardLayout() {
 
           {/* Endpoint Health Pill */}
           <div 
+            role="button"
+            tabIndex={0}
             onClick={() => { setShowSettings(true); setSettingsTab('api'); }}
-            className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-muted/40 hover:bg-muted/80 cursor-pointer transition-all border border-border/60 hover:border-border"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setShowSettings(true);
+                setSettingsTab('api');
+              }
+            }}
+            aria-label={`API Pool: ${healthyCount} active endpoints. Click to configure.`}
+            className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-muted/40 hover:bg-muted/80 cursor-pointer transition-all border border-border/60 hover:border-border focus:outline-none focus:ring-1 focus:ring-ring"
             title="Click to inspect API endpoints"
           >
             <span className="relative flex h-2 w-2">
@@ -374,6 +400,7 @@ export function DashboardLayout() {
             className="h-8 w-8 text-muted-foreground hover:text-foreground transition-colors"
             onClick={() => openDownloadDir(downloadDir || undefined)} 
             title="Open Download Folder"
+            aria-label="Open download folder"
           >
             <FolderOpen className="h-4 w-4" />
           </Button>
@@ -386,6 +413,7 @@ export function DashboardLayout() {
             className="h-8 w-8 text-muted-foreground hover:text-foreground transition-colors"
             onClick={() => setShowSettings(true)} 
             title="Settings & Config"
+            aria-label="Settings and configuration"
           >
             <Settings className="h-4 w-4" />
           </Button>
@@ -393,8 +421,10 @@ export function DashboardLayout() {
       </header>
 
       {/* Mobile Tab Switcher */}
-      <div className="flex md:hidden border-b bg-card/60 backdrop-blur-sm text-xs font-medium shrink-0">
+      <div role="tablist" aria-label="Views" className="flex md:hidden border-b bg-card/60 backdrop-blur-sm text-xs font-medium shrink-0">
         <button
+          role="tab"
+          aria-selected={mobileTab === 'source'}
           onClick={() => setMobileTab('source')}
           className={cn(
             "flex-1 py-2.5 flex items-center justify-center gap-1.5 border-b-2 transition-all",
@@ -412,6 +442,8 @@ export function DashboardLayout() {
           )}
         </button>
         <button
+          role="tab"
+          aria-selected={mobileTab === 'queue'}
           onClick={() => setMobileTab('queue')}
           className={cn(
             "flex-1 py-2.5 flex items-center justify-center gap-1.5 border-b-2 transition-all",
@@ -459,6 +491,7 @@ export function DashboardLayout() {
                     placeholder="Paste TeraBox link..." 
                     className="text-xs pr-14 pl-3 h-9 bg-background/60 focus-visible:ring-1"
                     value={url}
+                    aria-label="TeraBox share link"
                     onChange={e => setUrl(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleFetch()}
                   />
@@ -468,6 +501,7 @@ export function DashboardLayout() {
                         onClick={() => setUrl("")}
                         className="p-1.5 text-muted-foreground hover:text-foreground rounded-md transition-colors"
                         title="Clear"
+                        aria-label="Clear link input"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -476,6 +510,7 @@ export function DashboardLayout() {
                         onClick={handlePasteClipboard}
                         className="p-1.5 text-muted-foreground hover:text-primary rounded-md transition-colors"
                         title="Paste from clipboard"
+                        aria-label="Paste link from clipboard"
                       >
                         <Clipboard className="h-3.5 w-3.5" />
                       </button>
@@ -504,12 +539,16 @@ export function DashboardLayout() {
 
               {/* Error Alert Box */}
               {error && (
-                <div className="text-xs text-destructive bg-destructive/10 p-2.5 rounded-lg border border-destructive/20 flex items-start gap-2 animate-in fade-in duration-200">
-                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <div role="alert" className="text-xs text-destructive bg-destructive/10 p-2.5 rounded-lg border border-destructive/20 flex items-start gap-2 animate-in fade-in duration-200">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="flex-1 whitespace-pre-line leading-relaxed text-[11px]">
                     {error}
                   </div>
-                  <button onClick={() => setError(null)} className="opacity-60 hover:opacity-100">
+                  <button 
+                    onClick={() => setError(null)} 
+                    aria-label="Dismiss error message"
+                    className="opacity-60 hover:opacity-100 transition-opacity"
+                  >
                     <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
@@ -600,6 +639,7 @@ export function DashboardLayout() {
                   onClick={isProcessing ? pauseQueue : startQueue}
                   disabled={queue.length === 0}
                   className="h-7 text-xs px-2.5 border-border/70"
+                  aria-label={isProcessing ? "Pause download queue" : "Start download queue"}
                 >
                   {isProcessing ? (
                     <><Pause className="mr-1.5 h-3 w-3 fill-current" /> Pause</>
@@ -612,6 +652,7 @@ export function DashboardLayout() {
                   size="icon" 
                   onClick={clearCompleted} 
                   title="Clear Completed" 
+                  aria-label="Clear completed downloads"
                   className="h-7 w-7 text-muted-foreground hover:text-emerald-500 transition-colors"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -621,6 +662,7 @@ export function DashboardLayout() {
                   size="icon" 
                   onClick={clearAll} 
                   title="Clear All Tasks" 
+                  aria-label="Clear all tasks"
                   className="h-7 w-7 text-muted-foreground hover:text-destructive transition-colors"
                 >
                   <ListX className="h-3.5 w-3.5" />
@@ -648,6 +690,7 @@ export function DashboardLayout() {
                       item={item} 
                       isActive={item.status === 'downloading' || item.status === 'fetching_link'}
                       onRemove={() => removeFromQueue(item.id)}
+                      onRetry={() => retryItem(item.id)}
                       onOpenFolder={() => openDownloadDir(item.downloadDir || undefined)}
                       onPreview={() => {
                         if (item.params.direct_link) {
@@ -690,11 +733,16 @@ export function DashboardLayout() {
       {/* Video/Audio Stream Preview Modal */}
       {previewMediaUrl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="bg-background border border-border/80 rounded-2xl overflow-hidden w-full max-w-[820px] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
+          <div 
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="preview-modal-title"
+            className="bg-background border border-border/80 rounded-2xl overflow-hidden w-full max-w-[820px] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200"
+          >
             <div className="flex items-center justify-between p-3.5 px-4 border-b bg-card">
               <div className="flex items-center gap-2 min-w-0 pr-2">
-                <Film className="h-4 w-4 text-primary shrink-0" />
-                <span className="font-medium text-xs truncate">{previewMediaName}</span>
+                <Film className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
+                <span id="preview-modal-title" className="font-medium text-xs truncate">{previewMediaName}</span>
                 <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.2 rounded font-mono">
                   Live Stream
                 </span>
@@ -704,6 +752,7 @@ export function DashboardLayout() {
                 size="icon" 
                 className="h-7 w-7 text-muted-foreground hover:text-foreground"
                 onClick={() => setPreviewMediaUrl(null)}
+                aria-label="Close preview"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -723,60 +772,82 @@ export function DashboardLayout() {
       {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-background border border-border/80 rounded-2xl shadow-2xl w-full max-w-[580px] max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
+          <div 
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-modal-title"
+            className="bg-background border border-border/80 rounded-2xl shadow-2xl w-full max-w-[580px] max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden"
+          >
             
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5 bg-card/60">
-              <h2 className="text-sm font-semibold flex items-center gap-2">
-                <Settings className="h-4 w-4 text-primary" /> Settings & API Routing
+              <h2 id="settings-modal-title" className="text-sm font-semibold flex items-center gap-2">
+                <Settings className="h-4 w-4 text-primary" aria-hidden="true" /> Settings & API Routing
               </h2>
               <Button 
                 variant="ghost" 
                 size="icon" 
                 className="h-7 w-7"
                 onClick={() => setShowSettings(false)}
+                aria-label="Close settings"
               >
                 <X className="h-4 w-4" />
               </Button>
             </div>
 
             {/* Modal Navigation Tabs */}
-            <div className="flex border-b border-border/60 bg-muted/20 px-5 gap-2 text-xs shrink-0">
+            <div role="tablist" aria-label="Settings categories" className="flex border-b border-border/60 bg-muted/20 px-5 gap-2 text-xs shrink-0">
               <button
+                role="tab"
+                id="tab-general"
+                aria-controls="panel-general"
+                aria-selected={settingsTab === 'general'}
                 onClick={() => setSettingsTab('general')}
                 className={cn(
-                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5",
+                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none",
                   settingsTab === 'general' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
-                <HardDrive className="h-3.5 w-3.5" /> General
+                <HardDrive className="h-3.5 w-3.5" aria-hidden="true" /> General
               </button>
               <button
+                role="tab"
+                id="tab-api"
+                aria-controls="panel-api"
+                aria-selected={settingsTab === 'api'}
                 onClick={() => setSettingsTab('api')}
                 className={cn(
-                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5",
+                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none",
                   settingsTab === 'api' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
-                <Server className="h-3.5 w-3.5" /> API Pool & Balancer
+                <Server className="h-3.5 w-3.5" aria-hidden="true" /> API Pool & Balancer
               </button>
               <button
+                role="tab"
+                id="tab-cookie"
+                aria-controls="panel-cookie"
+                aria-selected={settingsTab === 'cookie'}
                 onClick={() => setSettingsTab('cookie')}
                 className={cn(
-                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5",
+                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none",
                   settingsTab === 'cookie' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
-                <Key className="h-3.5 w-3.5" /> TeraBox Cookie
+                <Key className="h-3.5 w-3.5" aria-hidden="true" /> TeraBox Cookie
               </button>
               <button
+                role="tab"
+                id="tab-about"
+                aria-controls="panel-about"
+                aria-selected={settingsTab === 'about'}
                 onClick={() => setSettingsTab('about')}
                 className={cn(
-                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5",
+                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none",
                   settingsTab === 'about' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
-                <Info className="h-3.5 w-3.5" /> About
+                <Info className="h-3.5 w-3.5" aria-hidden="true" /> About
               </button>
             </div>
 
@@ -785,17 +856,30 @@ export function DashboardLayout() {
               
               {/* TAB 1: GENERAL */}
               {settingsTab === 'general' && (
-                <div className="space-y-4">
+                <div 
+                  role="tabpanel" 
+                  id="panel-general" 
+                  aria-labelledby="tab-general" 
+                  tabIndex={0} 
+                  className="space-y-4 focus:outline-none"
+                >
                   <div className="space-y-1.5">
-                    <label className="font-medium text-foreground">Download Destination</label>
+                    <label htmlFor="settings-download-dir" className="font-medium text-foreground">Download Destination</label>
                     <div className="flex gap-2">
                       <Input 
+                        id="settings-download-dir"
                         value={downloadDir} 
                         onChange={e => setDownloadDir(e.target.value)} 
                         placeholder="Default: Downloads/TeraBox"
                         className="flex-1 text-xs h-9 font-mono"
                       />
-                      <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={handleBrowse}>
+                      <Button 
+                        variant="outline" 
+                        size="icon" 
+                        className="h-9 w-9 shrink-0" 
+                        onClick={handleBrowse}
+                        aria-label="Browse destination folder"
+                      >
                         <FolderOpen className="h-4 w-4" />
                       </Button>
                     </div>
@@ -805,7 +889,7 @@ export function DashboardLayout() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="font-medium text-foreground">Download Concurrency</label>
+                    <span className="font-medium text-foreground block">Download Concurrency</span>
                     <div className="grid grid-cols-2 gap-3">
                       <label className={cn(
                         "flex flex-col items-center justify-center p-3 rounded-xl border cursor-pointer hover:bg-accent/40 transition-all text-center",
@@ -814,6 +898,7 @@ export function DashboardLayout() {
                         <input
                           type="radio"
                           className="hidden"
+                          name="concurrency-mode"
                           checked={maxConcurrent === 1}
                           onChange={() => setMaxConcurrent(1)}
                         />
@@ -827,6 +912,7 @@ export function DashboardLayout() {
                         <input
                           type="radio"
                           className="hidden"
+                          name="concurrency-mode"
                           checked={maxConcurrent > 1}
                           onChange={() => setMaxConcurrent(3)}
                         />
@@ -837,10 +923,11 @@ export function DashboardLayout() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="font-medium text-foreground flex items-center gap-1.5">
-                      <Gauge className="h-3.5 w-3.5 text-primary" /> Bandwidth Cap
+                    <label htmlFor="settings-bandwidth-limit" className="font-medium text-foreground flex items-center gap-1.5">
+                      <Gauge className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> Bandwidth Cap
                     </label>
                     <select
+                      id="settings-bandwidth-limit"
                       className="w-full h-9 p-2 rounded-lg border border-border/80 bg-background text-xs"
                       value={maxOverallLimit}
                       onChange={e => setMaxOverallLimit(Number(e.target.value))}
@@ -857,10 +944,16 @@ export function DashboardLayout() {
 
               {/* TAB 2: API POOL (abdul97233 engine) */}
               {settingsTab === 'api' && (
-                <div className="space-y-4">
+                <div 
+                  role="tabpanel" 
+                  id="panel-api" 
+                  aria-labelledby="tab-api" 
+                  tabIndex={0} 
+                  className="space-y-4 focus:outline-none"
+                >
                   <div className="p-3 bg-muted/30 rounded-xl text-xs space-y-1 border border-border/60">
                     <p className="font-semibold text-foreground flex items-center gap-1.5">
-                      <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                      <ShieldCheck className="h-4 w-4 text-emerald-500" aria-hidden="true" />
                       Dynamic Round-Robin Balancer & Circuit Breaker
                     </p>
                     <p className="text-muted-foreground text-[11px] leading-relaxed">
@@ -877,6 +970,7 @@ export function DashboardLayout() {
                       </label>
                       <button 
                         onClick={refreshStats}
+                        aria-label="Refresh API endpoint status"
                         className="text-[11px] text-primary hover:underline flex items-center gap-1"
                       >
                         <RefreshCw className="h-3 w-3" /> Refresh
@@ -929,6 +1023,7 @@ export function DashboardLayout() {
                                 size="icon" 
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
                                 onClick={() => handleDeleteEndpoint(ep.id)}
+                                aria-label={`Delete endpoint ${ep.name}`}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
@@ -941,19 +1036,22 @@ export function DashboardLayout() {
 
                   {/* Add New Endpoint */}
                   <div className="border-t border-border/60 pt-3 space-y-2">
-                    <label className="font-semibold text-xs text-foreground">Add Custom Endpoint</label>
+                    <label htmlFor="settings-new-ep-name" className="font-semibold text-xs text-foreground block">Add Custom Endpoint</label>
                     <div className="grid grid-cols-2 gap-2">
                       <Input 
+                        id="settings-new-ep-name"
                         placeholder="Provider Name (e.g. My NTM API)"
                         value={newEpName}
                         onChange={e => setNewEpName(e.target.value)}
                         className="text-xs h-8"
+                        aria-label="Provider Name"
                       />
                       <Input 
                         placeholder="Auth Token (Optional)"
                         value={newEpToken}
                         onChange={e => setNewEpToken(e.target.value)}
                         className="text-xs h-8"
+                        aria-label="Auth Token"
                       />
                     </div>
                     <div className="flex gap-2">
@@ -962,6 +1060,7 @@ export function DashboardLayout() {
                         value={newEpUrl}
                         onChange={e => setNewEpUrl(e.target.value)}
                         className="flex-1 text-xs h-8 font-mono"
+                        aria-label="Base URL"
                       />
                       <Button size="sm" className="h-8 px-3" onClick={handleAddEndpoint} disabled={!newEpName || !newEpUrl}>
                         <Plus className="h-3.5 w-3.5 mr-1" /> Add
@@ -973,13 +1072,20 @@ export function DashboardLayout() {
 
               {/* TAB 3: TERA BOX COOKIE */}
               {settingsTab === 'cookie' && (
-                <div className="space-y-3">
+                <div 
+                  role="tabpanel" 
+                  id="panel-cookie" 
+                  aria-labelledby="tab-cookie" 
+                  tabIndex={0} 
+                  className="space-y-3 focus:outline-none"
+                >
                   <div className="space-y-1.5">
-                    <label className="font-medium text-foreground flex items-center gap-1.5">
-                      <Key className="h-3.5 w-3.5 text-primary" /> Personal TeraBox Session Cookie (<code className="text-xs font-mono">ndus</code>)
+                    <label htmlFor="settings-terabox-cookie" className="font-medium text-foreground flex items-center gap-1.5">
+                      <Key className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> Personal TeraBox Session Cookie (<code className="text-xs font-mono">ndus</code>)
                     </label>
                     <div className="relative">
                       <Input 
+                        id="settings-terabox-cookie"
                         value={teraboxCookie}
                         onChange={e => setTeraboxCookie(e.target.value)}
                         placeholder="ndus=Yxxxxxx... or raw token"
@@ -988,6 +1094,7 @@ export function DashboardLayout() {
                       {teraboxCookie && (
                         <button 
                           onClick={() => setTeraboxCookie("")}
+                          aria-label="Clear cookie value"
                           className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
                         >
                           <X className="h-3.5 w-3.5" />
@@ -1009,7 +1116,13 @@ export function DashboardLayout() {
 
               {/* TAB 4: ABOUT */}
               {settingsTab === 'about' && (
-                <div className="space-y-4 py-1">
+                <div 
+                  role="tabpanel" 
+                  id="panel-about" 
+                  aria-labelledby="tab-about" 
+                  tabIndex={0} 
+                  className="space-y-4 py-1 focus:outline-none"
+                >
                   <div className="flex items-center gap-3 p-3 bg-muted/20 border border-border/60 rounded-xl">
                     <img src="/logo.svg" alt="TeraLace" className="w-10 h-10 rounded-xl" />
                     <div>
@@ -1062,12 +1175,14 @@ function QueueItemRow({
   item, 
   isActive, 
   onRemove,
+  onRetry,
   onOpenFolder,
   onPreview
 }: { 
   item: QueueItem, 
   isActive: boolean, 
   onRemove: () => void,
+  onRetry?: () => void,
   onOpenFolder?: () => void,
   onPreview?: () => void
 }) {
@@ -1096,6 +1211,7 @@ function QueueItemRow({
                   onOpenFolder();
                 }}
                 title="Open Destination Folder"
+                aria-label={`Open destination folder for ${item.file.name}`}
               >
                 <FolderOpen className="h-3.5 w-3.5" />
               </Button>
@@ -1111,8 +1227,25 @@ function QueueItemRow({
                   onPreview();
                 }}
                 title="Instant Media Preview"
+                aria-label={`Preview media stream for ${item.file.name}`}
               >
                 <Play className="h-3.5 w-3.5 fill-current" />
+              </Button>
+            )}
+
+            {item.status === 'error' && onRetry && (
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-6 w-6 text-muted-foreground hover:text-primary transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry();
+                }}
+                title="Retry Download"
+                aria-label={`Retry download for ${item.file.name}`}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
               </Button>
             )}
 
@@ -1136,6 +1269,7 @@ function QueueItemRow({
                   onRemove();
                 }}
                 title="Cancel Task"
+                aria-label={`Cancel download task for ${item.file.name}`}
               >
                 <X className="h-3.5 w-3.5" />
               </Button>

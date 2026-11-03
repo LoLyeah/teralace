@@ -109,11 +109,22 @@ export function useDownloadQueue() {
     }
   }, []);
 
+  const retryItem = useCallback((id: string) => {
+    updateItem(id, {
+      status: "pending",
+      error: undefined,
+      progress: 0,
+      downloaded: 0,
+      speed: 0,
+    });
+    setIsProcessing(true);
+  }, []);
+
   // Queue Processor
   useEffect(() => {
     if (!isProcessing) return;
 
-    const currentQueue = queue; // Use state queue for dependency tracking
+    const currentQueue = queue;
     const activeCount = currentQueue.filter(i => i.status === 'downloading' || i.status === 'fetching_link').length;
     
     if (activeCount < maxConcurrent) {
@@ -124,37 +135,39 @@ export function useDownloadQueue() {
     }
   }, [queue, isProcessing, maxConcurrent, startItem]);
 
-  // Polling Loop for ALL active items
+  // Polling Loop for active items (concurrent IPC requests via Promise.allSettled)
   useEffect(() => {
     const interval = setInterval(async () => {
-      // Find all active items with GID
       const activeItems = queueRef.current.filter(i => i.status === 'downloading' && i.gid);
-      
-      for (const item of activeItems) {
-        if (!item.gid) continue;
-        
-        try {
-          const status = await getDownloadStatus(item.gid);
-          
-          updateItem(item.id, {
-            progress: status.progress,
-            speed: status.speed,
-            downloaded: status.downloaded,
-            total: status.total_size,
-          });
+      if (activeItems.length === 0) return;
 
-          if (status.status === "complete") {
-            updateItem(item.id, { status: "completed", progress: 100 });
-          } else if (status.status === "error" || status.status === "removed") {
-             updateItem(item.id, { 
-               status: status.status === "error" ? "error" : "cancelled", 
-               error: status.error_message || (status.status === "removed" ? "Cancelled" : "Aria2 error") 
-             });
+      await Promise.allSettled(
+        activeItems.map(async (item) => {
+          if (!item.gid) return;
+
+          try {
+            const status = await getDownloadStatus(item.gid);
+
+            updateItem(item.id, {
+              progress: status.progress,
+              speed: status.speed,
+              downloaded: status.downloaded,
+              total: status.total_size,
+            });
+
+            if (status.status === "complete") {
+              updateItem(item.id, { status: "completed", progress: 100 });
+            } else if (status.status === "error" || status.status === "removed") {
+              updateItem(item.id, { 
+                status: status.status === "error" ? "error" : "cancelled", 
+                error: status.error_message || (status.status === "removed" ? "Cancelled" : "Download failed") 
+              });
+            }
+          } catch (e) {
+            console.error(`Polling error for ${item.id}:`, e);
           }
-        } catch (e) {
-          console.error(`Polling error for ${item.id}:`, e);
-        }
-      }
+        })
+      );
     }, 1000);
 
     return () => clearInterval(interval);
@@ -166,6 +179,7 @@ export function useDownloadQueue() {
     startQueue: () => setIsProcessing(true),
     pauseQueue: () => setIsProcessing(false),
     removeFromQueue,
+    retryItem,
     isProcessing,
     clearCompleted: () => setQueue(q => q.filter(i => i.status !== "completed")),
     clearAll: () => setQueue(q => q.filter(i => i.status === "downloading" || i.status === "fetching_link")),

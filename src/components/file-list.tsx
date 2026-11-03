@@ -78,21 +78,25 @@ export function FileList({
         <div className="space-y-2 pb-1 shrink-0">
           {files.length > 6 && (
             <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
               <Input
                 placeholder="Search files..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="h-8 text-xs pl-8 pr-3 bg-muted/30 focus-visible:ring-1"
+                aria-label="Filter loaded files"
               />
             </div>
           )}
 
           {categories.length > 2 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-[11px]">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-[11px]" role="tablist" aria-label="Filter files by type">
               {categories.map(cat => (
                 <button
                   key={cat.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeCategory === cat.id}
                   onClick={() => setActiveCategory(cat.id)}
                   className={cn(
                     "px-2.5 py-0.5 rounded-full transition-all shrink-0 font-medium",
@@ -101,7 +105,7 @@ export function FileList({
                       : "bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  {cat.label} <span className="opacity-75 text-[10px]">({cat.count})</span>
+                  {cat.label} <span className="opacity-75 text-[10px] tabular-nums">({cat.count})</span>
                 </button>
               ))}
             </div>
@@ -110,7 +114,7 @@ export function FileList({
       )}
 
       {/* File List Items */}
-      <div className="flex-1 overflow-y-auto space-y-1 pr-0.5">
+      <div className="flex-1 overflow-y-auto space-y-1 pr-0.5" role="list" aria-label="Files list">
         {filteredFiles.length === 0 ? (
           <div className="text-center py-6 text-muted-foreground text-xs">
             No files match your filter
@@ -148,7 +152,7 @@ function FileItem({
   const [thumbError, setThumbError] = useState(false);
 
   const toggleSelection = () => {
-    if (file.is_dir) return; // Folders are container views
+    if (file.is_dir) return;
     const newSelected = new Set(selectedFiles);
     if (isSelected) {
       newSelected.delete(file.fs_id);
@@ -181,13 +185,13 @@ function FileItem({
         <div className="w-8 h-8 rounded bg-muted/60 overflow-hidden shrink-0 relative group-hover:ring-1 group-hover:ring-primary/40 transition-all">
           <img
             src={file.thumb}
-            alt={file.name}
+            alt=""
             className="w-full h-full object-cover"
             onError={() => setThumbError(true)}
             loading="lazy"
           />
           {file.file_type === 'video' && (
-            <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/30 flex items-center justify-center" aria-hidden="true">
               <Film className="h-3 w-3 text-white/90" />
             </div>
           )}
@@ -197,7 +201,7 @@ function FileItem({
 
     if (file.is_dir) {
       return (
-        <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0 text-amber-500">
+        <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0 text-amber-500" aria-hidden="true">
           <Folder className="h-4 w-4 fill-amber-500/20" />
         </div>
       );
@@ -206,31 +210,31 @@ function FileItem({
     switch (file.file_type) {
       case "video":
         return (
-          <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0 text-blue-500">
+          <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0 text-blue-500" aria-hidden="true">
             <Video className="h-4 w-4" />
           </div>
         );
       case "image":
         return (
-          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 text-emerald-500">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 text-emerald-500" aria-hidden="true">
             <Image className="h-4 w-4" />
           </div>
         );
       case "archive":
         return (
-          <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0 text-purple-500">
+          <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0 text-purple-500" aria-hidden="true">
             <FileArchive className="h-4 w-4" />
           </div>
         );
       case "audio":
         return (
-          <div className="w-8 h-8 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0 text-rose-500">
+          <div className="w-8 h-8 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0 text-rose-500" aria-hidden="true">
             <Music className="h-4 w-4" />
           </div>
         );
       default:
         return (
-          <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0 text-muted-foreground">
+          <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0 text-muted-foreground" aria-hidden="true">
             <FileText className="h-4 w-4" />
           </div>
         );
@@ -241,9 +245,16 @@ function FileItem({
 
   return (
     <div
+      role="listitem"
       onClick={toggleSelection}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          toggleSelection();
+        }
+      }}
+      tabIndex={file.is_dir ? -1 : 0}
       className={cn(
-        "flex items-center gap-2.5 p-2 rounded-xl border transition-all text-xs group cursor-pointer select-none",
+        "flex items-center gap-2.5 p-2 rounded-xl border transition-all text-xs group cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         isSelected
           ? "bg-primary/10 border-primary/40 shadow-sm"
           : "bg-card/50 hover:bg-accent/40 border-border/60 hover:border-border"
@@ -252,6 +263,9 @@ function FileItem({
       {/* Checkbox button */}
       {!file.is_dir && (
         <div
+          role="checkbox"
+          aria-checked={isSelected}
+          aria-label={`Select ${file.name}`}
           className={cn(
             "flex items-center justify-center w-4 h-4 rounded border transition-colors shrink-0",
             isSelected
@@ -276,7 +290,7 @@ function FileItem({
         </div>
         <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground">
           {!file.is_dir && file.size ? (
-            <span className="font-mono">{formatBytes(file.size)}</span>
+            <span className="font-mono tabular-nums">{formatBytes(file.size)}</span>
           ) : (
             <span className="text-amber-500 font-medium">Folder</span>
           )}
@@ -286,12 +300,14 @@ function FileItem({
       {/* Instant Video/Audio Stream Preview Button */}
       {hasStreamPreview && (
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             onPreview(file);
           }}
-          className="p-1.5 hover:bg-primary/15 text-muted-foreground hover:text-primary rounded-lg transition-colors shrink-0 opacity-80 group-hover:opacity-100"
-          title="Instant Media Preview"
+          className="p-1.5 hover:bg-primary/15 text-muted-foreground hover:text-primary rounded-lg transition-colors shrink-0 opacity-80 group-hover:opacity-100 min-h-[32px] min-w-[32px] flex items-center justify-center"
+          title={`Preview ${file.name}`}
+          aria-label={`Instant media stream preview for ${file.name}`}
         >
           <Play className="h-3.5 w-3.5 fill-current" />
         </button>
@@ -319,6 +335,7 @@ export function SelectAllButton({
 
   return (
     <button
+      type="button"
       onClick={toggleSelectAll}
       className={cn(
         "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border",
@@ -326,15 +343,16 @@ export function SelectAllButton({
           ? "bg-primary/10 border-primary/30 text-primary"
           : "bg-muted/40 hover:bg-muted border-transparent text-muted-foreground hover:text-foreground"
       )}
+      aria-label={allSelected ? "Deselect all files" : "Select all files"}
     >
       {allSelected ? (
         <>
-          <CheckSquare className="h-3.5 w-3.5 text-primary" />
+          <CheckSquare className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
           <span>Deselect All</span>
         </>
       ) : (
         <>
-          <Square className="h-3.5 w-3.5 opacity-60" />
+          <Square className="h-3.5 w-3.5 opacity-60" aria-hidden="true" />
           <span>Select All</span>
         </>
       )}

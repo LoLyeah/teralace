@@ -112,3 +112,18 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
+
+/* Intentional reduced motion alternative (WCAG SC 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin {
+    animation: none !important;
+  }
+  .animate-pulse {
+    opacity: 1 !important;
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.05s !important;
+    scroll-behavior: auto !important;
+  }
+}
