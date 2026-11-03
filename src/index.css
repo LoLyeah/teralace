@@ -113,6 +113,24 @@
   -webkit-backdrop-filter: blur(12px);
 }
 
+/* Purposeful motion primitives (Impeccable Animate) */
+.ease-out-expo {
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes progress-sheen {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+.animate-progress-sheen {
+  animation: progress-sheen 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 /* Intentional reduced motion alternative (WCAG SC 2.3.3) */
 @media (prefers-reduced-motion: reduce) {
   .animate-spin {
@@ -120,6 +138,10 @@
   }
   .animate-pulse {
     opacity: 1 !important;
+    animation: none !important;
+  }
+  .animate-progress-sheen {
+    display: none !important;
     animation: none !important;
   }
   * {

@@ -353,7 +353,7 @@ export function DashboardLayout() {
         <div className="flex items-center gap-2.5">
           {/* Live Global Download Speed Indicator */}
           {totalSpeed > 0 && (
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold bg-primary/10 text-primary border border-primary/25 animate-pulse shadow-sm shadow-primary/10">
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold bg-primary/10 text-primary border border-primary/25 animate-pulse shadow-sm shadow-primary/10 animate-in fade-in zoom-in-95 duration-200">
               <Zap className="h-3.5 w-3.5 fill-current" />
               <span>{formatSpeed(totalSpeed)}</span>
             </div>
@@ -467,7 +467,7 @@ export function DashboardLayout() {
         
         {/* Left Column: Source Input & File Explorer */}
         <div className={cn(
-          "col-span-12 md:col-span-5 lg:col-span-4 flex flex-col gap-3 md:gap-4 overflow-hidden",
+          "col-span-12 md:col-span-5 lg:col-span-4 flex flex-col gap-3 md:gap-4 overflow-hidden animate-in fade-in duration-200",
           mobileTab !== 'source' && "hidden md:flex"
         )}>
           {/* Link Fetcher Card */}
@@ -613,7 +613,7 @@ export function DashboardLayout() {
 
         {/* Right Column: Download Queue & Telemetry */}
         <div className={cn(
-          "col-span-12 md:col-span-7 lg:col-span-8 flex flex-col overflow-hidden",
+          "col-span-12 md:col-span-7 lg:col-span-8 flex flex-col overflow-hidden animate-in fade-in duration-200",
           mobileTab !== 'queue' && "hidden md:flex"
         )}>
           <Card className="h-full flex flex-col overflow-hidden border border-border/70 shadow-sm bg-card/70 backdrop-blur-sm">
@@ -861,7 +861,7 @@ export function DashboardLayout() {
                   id="panel-general" 
                   aria-labelledby="tab-general" 
                   tabIndex={0} 
-                  className="space-y-4 focus:outline-none"
+                  className="space-y-4 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
                 >
                   <div className="space-y-1.5">
                     <label htmlFor="settings-download-dir" className="font-medium text-foreground">Download Destination</label>
@@ -949,7 +949,7 @@ export function DashboardLayout() {
                   id="panel-api" 
                   aria-labelledby="tab-api" 
                   tabIndex={0} 
-                  className="space-y-4 focus:outline-none"
+                  className="space-y-4 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
                 >
                   <div className="p-3 bg-muted/30 rounded-xl text-xs space-y-1 border border-border/60">
                     <p className="font-semibold text-foreground flex items-center gap-1.5">
@@ -1077,7 +1077,7 @@ export function DashboardLayout() {
                   id="panel-cookie" 
                   aria-labelledby="tab-cookie" 
                   tabIndex={0} 
-                  className="space-y-3 focus:outline-none"
+                  className="space-y-3 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
                 >
                   <div className="space-y-1.5">
                     <label htmlFor="settings-terabox-cookie" className="font-medium text-foreground flex items-center gap-1.5">
@@ -1121,7 +1121,7 @@ export function DashboardLayout() {
                   id="panel-about" 
                   aria-labelledby="tab-about" 
                   tabIndex={0} 
-                  className="space-y-4 py-1 focus:outline-none"
+                  className="space-y-4 py-1 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
                 >
                   <div className="flex items-center gap-3 p-3 bg-muted/20 border border-border/60 rounded-xl">
                     <img src="/logo.svg" alt="TeraLace" className="w-10 h-10 rounded-xl" />
@@ -1190,7 +1190,7 @@ function QueueItemRow({
 
   return (
     <div className={cn(
-      "p-3 md:p-3.5 flex items-center gap-3 transition-colors group select-none",
+      "p-3 md:p-3.5 flex items-center gap-3 transition-colors group select-none animate-in fade-in slide-in-from-top-1 duration-200",
       isActive ? "bg-primary/5" : "hover:bg-accent/30",
       item.status === 'completed' && "opacity-90 bg-muted/10"
     )}>
@@ -1250,7 +1250,7 @@ function QueueItemRow({
             )}
 
             <span className={cn(
-              "text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ml-1 tabular-nums",
+              "text-[10px] font-mono px-1.5 py-0.2 rounded font-semibold ml-1 tabular-nums transition-colors duration-200",
               item.status === 'completed' ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" :
               item.status === 'error' ? "bg-destructive/10 text-destructive border border-destructive/20" :
               isActive ? "bg-primary/10 text-primary border border-primary/20" :
@@ -1278,16 +1278,23 @@ function QueueItemRow({
         </div>
         
         {/* Solid Progress Bar (No generic AI gradient text or bars) */}
-        <div className="h-1.5 bg-muted/60 rounded-full overflow-hidden">
+        <div className="h-1.5 bg-muted/60 rounded-full overflow-hidden relative">
           <div 
             className={cn(
-              "h-full transition-all duration-300",
+              "h-full transition-all duration-300 ease-out-expo relative overflow-hidden",
               item.status === 'error' ? "bg-destructive" : 
               item.status === 'completed' ? "bg-emerald-500" : 
               "bg-primary"
             )}
             style={{ width: `${Math.min(item.progress, 100)}%` }}
-          />
+          >
+            {isActive && item.status === 'downloading' && (
+              <div 
+                className="absolute inset-0 bg-white/20 animate-progress-sheen pointer-events-none" 
+                aria-hidden="true"
+              />
+            )}
+          </div>
         </div>
         
         {/* Telemetry Row with tabular numbers */}

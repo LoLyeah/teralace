@@ -99,7 +99,7 @@ export function FileList({
                   aria-selected={activeCategory === cat.id}
                   onClick={() => setActiveCategory(cat.id)}
                   className={cn(
-                    "px-2.5 py-0.5 rounded-full transition-all shrink-0 font-medium",
+                    "px-2.5 py-0.5 rounded-full transition-all duration-150 active:scale-95 shrink-0 font-medium",
                     activeCategory === cat.id
                       ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
                       : "bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
@@ -267,13 +267,16 @@ function FileItem({
           aria-checked={isSelected}
           aria-label={`Select ${file.name}`}
           className={cn(
-            "flex items-center justify-center w-4 h-4 rounded border transition-colors shrink-0",
+            "flex items-center justify-center w-4 h-4 rounded border transition-all duration-150 ease-out-expo shrink-0",
             isSelected
-              ? "bg-primary border-primary text-primary-foreground shadow-sm shadow-primary/20"
-              : "border-muted-foreground/30 group-hover:border-primary/60 bg-background/50"
+              ? "bg-primary border-primary text-primary-foreground shadow-sm shadow-primary/20 scale-100"
+              : "border-muted-foreground/30 group-hover:border-primary/60 bg-background/50 hover:scale-105"
           )}
         >
-          {isSelected && <Check className="h-2.5 w-2.5 stroke-[3]" />}
+          <Check className={cn(
+            "h-2.5 w-2.5 stroke-[3] transition-all duration-150 ease-out-expo",
+            isSelected ? "scale-100 opacity-100" : "scale-50 opacity-0"
+          )} />
         </div>
       )}
 
@@ -338,7 +341,7 @@ export function SelectAllButton({
       type="button"
       onClick={toggleSelectAll}
       className={cn(
-        "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border",
+        "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all duration-150 active:scale-95 border",
         allSelected
           ? "bg-primary/10 border-primary/30 text-primary"
           : "bg-muted/40 hover:bg-muted border-transparent text-muted-foreground hover:text-foreground"
@@ -347,12 +350,12 @@ export function SelectAllButton({
     >
       {allSelected ? (
         <>
-          <CheckSquare className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          <CheckSquare className="h-3.5 w-3.5 text-primary transition-transform duration-150 scale-100" aria-hidden="true" />
           <span>Deselect All</span>
         </>
       ) : (
         <>
-          <Square className="h-3.5 w-3.5 opacity-60" aria-hidden="true" />
+          <Square className="h-3.5 w-3.5 opacity-60 transition-transform duration-150 scale-100" aria-hidden="true" />
           <span>Select All</span>
         </>
       )}
