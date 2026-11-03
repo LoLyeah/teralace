@@ -110,8 +110,28 @@ async fn add_download(
         }
     }
 
+    // Determine effective target directory with Android fallback
+    let effective_dir = if let Some(d) = dir.filter(|s| !s.trim().is_empty()) {
+        Some(d)
+    } else if !settings.download_dir.trim().is_empty() {
+        Some(settings.download_dir.clone())
+    } else {
+        #[cfg(target_os = "android")]
+        {
+            use tauri::Manager;
+            let p = handle
+                .path()
+                .download_dir()
+                .unwrap_or_else(|_| PathBuf::from("/storage/emulated/0/Download"))
+                .join("TeraBox");
+            Some(p.to_string_lossy().to_string())
+        }
+        #[cfg(not(target_os = "android"))]
+        None
+    };
+
     let options = DownloadOptions {
-        dir,
+        dir: effective_dir,
         out: filename,
         headers: if headers.is_empty() { None } else { Some(headers) },
         ..Default::default()
@@ -195,12 +215,17 @@ async fn open_download_dir(handle: tauri::AppHandle, path: Option<String>) -> Re
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", not(target_os = "android")))]
     {
         std::process::Command::new("xdg-open")
             .arg(&target)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        let _ = (&handle, &target);
     }
 
     Ok(())
@@ -332,13 +357,25 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init());
 
-    #[cfg(desktop)]
-    {
-        builder = builder.setup(|app| {
+    builder = builder.setup(|app| {
+        #[cfg(desktop)]
+        {
             setup_tray(app)?;
-            Ok(())
-        });
-    }
+        }
+
+        #[cfg(target_os = "android")]
+        {
+            use tauri::Manager;
+            if let Ok(dl_dir) = app.path().download_dir() {
+                let tb_dir = dl_dir.join("TeraBox");
+                tauri::async_runtime::block_on(async {
+                    DOWNLOAD_MANAGER.set_default_dir(tb_dir).await;
+                });
+            }
+        }
+
+        Ok(())
+    });
 
     builder
         .invoke_handler(tauri::generate_handler![

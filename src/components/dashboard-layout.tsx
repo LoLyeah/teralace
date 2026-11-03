@@ -271,9 +271,9 @@ export function DashboardLayout() {
       <header className="border-b px-4 md:px-6 py-3 flex items-center justify-between bg-card shrink-0">
         <div className="flex items-center gap-2.5">
           <img 
-            src="/logo.png" 
+            src="/logo.svg" 
             alt="TeraLace Logo" 
-            className="w-8 h-8 rounded-lg shadow-sm object-cover border border-primary/20"
+            className="w-8 h-8 rounded-lg shadow-sm object-contain"
           />
           <div>
             <h1 className="font-bold text-lg md:text-xl leading-tight tracking-tight flex items-center gap-1.5">

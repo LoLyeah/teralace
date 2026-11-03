@@ -43,6 +43,10 @@ impl DownloadManager {
             .build()
             .expect("Failed to build downloader HTTP client");
 
+        #[cfg(target_os = "android")]
+        let default_dir = PathBuf::from("/storage/emulated/0/Download/TeraBox");
+
+        #[cfg(not(target_os = "android"))]
         let default_dir = dirs::download_dir()
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
             .join("TeraBox");
@@ -78,16 +82,39 @@ impl DownloadManager {
         let gid = uuid::Uuid::new_v4().to_string();
         let opts = options.unwrap_or_default();
 
-        let target_dir = if let Some(dir_str) = opts.dir {
+        let mut target_dir = if let Some(dir_str) = opts.dir {
             PathBuf::from(dir_str)
         } else {
             self.get_default_dir().await
         };
 
-        // Ensure destination folder exists
-        tokio::fs::create_dir_all(&target_dir)
-            .await
-            .map_err(|e| format!("Failed to create download folder: {}", e))?;
+        // Ensure destination folder exists, with resilient fallback for Android scoped storage
+        if let Err(e) = tokio::fs::create_dir_all(&target_dir).await {
+            #[cfg(target_os = "android")]
+            {
+                let mut resolved = false;
+                let fallbacks = [
+                    PathBuf::from("/storage/emulated/0/Download/TeraBox"),
+                    PathBuf::from("/storage/emulated/0/Download"),
+                    PathBuf::from("/sdcard/Download"),
+                    PathBuf::from("/data/data/com.teralace.downloader/files/Download"),
+                ];
+                for fb in &fallbacks {
+                    if tokio::fs::create_dir_all(fb).await.is_ok() {
+                        target_dir = fb.clone();
+                        resolved = true;
+                        break;
+                    }
+                }
+                if !resolved {
+                    return Err(format!("Failed to create download folder on Android: {}", e));
+                }
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                return Err(format!("Failed to create download folder: {}", e));
+            }
+        }
 
         let filename = if let Some(out_name) = opts.out {
             out_name
