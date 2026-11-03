@@ -1,15 +1,22 @@
+import { useState, useMemo } from "react";
 import {
-  File,
   Folder,
   Video,
   Image,
   FileArchive,
+  Music,
+  FileText,
   Check,
   Play,
+  Search,
+  CheckSquare,
+  Square,
+  Film
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import type { TeraboxFileInfo } from "../lib/types";
 import { formatBytes } from "../lib/api";
+import { Input } from "./ui/input";
 
 interface FileListProps {
   files: TeraboxFileInfo[];
@@ -24,25 +31,102 @@ export function FileList({
   onSelectionChange,
   onPreview,
 }: FileListProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string>("all");
+
+  // Group counts by category
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: files.length };
+    files.forEach(f => {
+      const cat = f.is_dir ? "folder" : (f.file_type || "file");
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+    return counts;
+  }, [files]);
+
+  // Filtered files
+  const filteredFiles = useMemo(() => {
+    return files.filter(f => {
+      const matchesSearch = !searchQuery.trim() || f.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const cat = f.is_dir ? "folder" : (f.file_type || "file");
+      const matchesCategory = activeCategory === "all" || cat === activeCategory;
+      return matchesSearch && matchesCategory;
+    });
+  }, [files, searchQuery, activeCategory]);
+
   if (files.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground text-xs">
-        No files found
+      <div className="text-center py-10 text-muted-foreground text-xs">
+        No files found in share link
       </div>
     );
   }
 
+  const categories = [
+    { id: "all", label: "All", count: categoryCounts.all },
+    ...(categoryCounts.video ? [{ id: "video", label: "Videos", count: categoryCounts.video }] : []),
+    ...(categoryCounts.image ? [{ id: "image", label: "Images", count: categoryCounts.image }] : []),
+    ...(categoryCounts.archive ? [{ id: "archive", label: "Archives", count: categoryCounts.archive }] : []),
+    ...(categoryCounts.audio ? [{ id: "audio", label: "Audio", count: categoryCounts.audio }] : []),
+    ...(categoryCounts.document ? [{ id: "document", label: "Documents", count: categoryCounts.document }] : []),
+  ];
+
   return (
-    <div className="space-y-1">
-      {files.map((file) => (
-        <FileItem
-          key={file.fs_id}
-          file={file}
-          selectedFiles={selectedFiles}
-          onSelectionChange={onSelectionChange}
-          onPreview={onPreview}
-        />
-      ))}
+    <div className="flex flex-col h-full space-y-2">
+      {/* Search & Filter Bar (shown if file list is large or categories exist) */}
+      {(files.length > 4 || categories.length > 2) && (
+        <div className="space-y-2 pb-1 shrink-0">
+          {files.length > 6 && (
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search files..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="h-8 text-xs pl-8 pr-3 bg-muted/30 focus-visible:ring-1"
+              />
+            </div>
+          )}
+
+          {categories.length > 2 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-[11px]">
+              {categories.map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveCategory(cat.id)}
+                  className={cn(
+                    "px-2.5 py-0.5 rounded-full transition-all shrink-0 font-medium",
+                    activeCategory === cat.id
+                      ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                      : "bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {cat.label} <span className="opacity-75 text-[10px]">({cat.count})</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* File List Items */}
+      <div className="flex-1 overflow-y-auto space-y-1 pr-0.5">
+        {filteredFiles.length === 0 ? (
+          <div className="text-center py-6 text-muted-foreground text-xs">
+            No files match your filter
+          </div>
+        ) : (
+          filteredFiles.map((file) => (
+            <FileItem
+              key={file.fs_id}
+              file={file}
+              selectedFiles={selectedFiles}
+              onSelectionChange={onSelectionChange}
+              onPreview={onPreview}
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -61,8 +145,10 @@ function FileItem({
   onPreview,
 }: FileItemProps) {
   const isSelected = selectedFiles.has(file.fs_id);
+  const [thumbError, setThumbError] = useState(false);
 
   const toggleSelection = () => {
+    if (file.is_dir) return; // Folders are container views
     const newSelected = new Set(selectedFiles);
     if (isSelected) {
       newSelected.delete(file.fs_id);
@@ -72,61 +158,140 @@ function FileItem({
     onSelectionChange(newSelected);
   };
 
-  const getFileIcon = () => {
-    if (file.is_dir) return <Folder className="h-4 w-4 text-yellow-500 shrink-0" />;
+  const getFileBadge = () => {
+    const ext = file.name.split('.').pop()?.toUpperCase() || "";
+    if (file.is_dir) return null;
+    return (
+      <span className={cn(
+        "text-[9px] px-1.5 py-0.2 rounded font-mono font-semibold uppercase tracking-wider shrink-0",
+        file.file_type === 'video' ? "bg-blue-500/10 text-blue-500 border border-blue-500/20" :
+        file.file_type === 'image' ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" :
+        file.file_type === 'archive' ? "bg-purple-500/10 text-purple-500 border border-purple-500/20" :
+        file.file_type === 'audio' ? "bg-rose-500/10 text-rose-500 border border-rose-500/20" :
+        "bg-muted text-muted-foreground"
+      )}>
+        {ext.length <= 4 ? ext : file.file_type}
+      </span>
+    );
+  };
+
+  const renderIconOrThumb = () => {
+    if (file.thumb && !thumbError) {
+      return (
+        <div className="w-8 h-8 rounded bg-muted/60 overflow-hidden shrink-0 relative group-hover:ring-1 group-hover:ring-primary/40 transition-all">
+          <img
+            src={file.thumb}
+            alt={file.name}
+            className="w-full h-full object-cover"
+            onError={() => setThumbError(true)}
+            loading="lazy"
+          />
+          {file.file_type === 'video' && (
+            <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+              <Film className="h-3 w-3 text-white/90" />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (file.is_dir) {
+      return (
+        <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0 text-amber-500">
+          <Folder className="h-4 w-4 fill-amber-500/20" />
+        </div>
+      );
+    }
 
     switch (file.file_type) {
       case "video":
-        return <Video className="h-4 w-4 text-blue-500 shrink-0" />;
+        return (
+          <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0 text-blue-500">
+            <Video className="h-4 w-4" />
+          </div>
+        );
       case "image":
-        return <Image className="h-4 w-4 text-green-500 shrink-0" />;
-      case "file":
+        return (
+          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 text-emerald-500">
+            <Image className="h-4 w-4" />
+          </div>
+        );
       case "archive":
-        return <FileArchive className="h-4 w-4 text-purple-500 shrink-0" />;
+        return (
+          <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0 text-purple-500">
+            <FileArchive className="h-4 w-4" />
+          </div>
+        );
+      case "audio":
+        return (
+          <div className="w-8 h-8 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0 text-rose-500">
+            <Music className="h-4 w-4" />
+          </div>
+        );
       default:
-        return <File className="h-4 w-4 text-gray-500 shrink-0" />;
+        return (
+          <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0 text-muted-foreground">
+            <FileText className="h-4 w-4" />
+          </div>
+        );
     }
   };
 
-  const hasStreamPreview = file.file_type === "video" && file.direct_link && onPreview;
+  const hasStreamPreview = (file.file_type === "video" || file.file_type === "audio") && file.direct_link && onPreview;
 
   return (
     <div
+      onClick={toggleSelection}
       className={cn(
-        "flex items-center gap-2 py-1.5 px-2.5 rounded-lg hover:bg-accent/60 transition-colors text-xs group",
-        isSelected && "bg-accent"
+        "flex items-center gap-2.5 p-2 rounded-xl border transition-all text-xs group cursor-pointer select-none",
+        isSelected
+          ? "bg-primary/10 border-primary/40 shadow-sm"
+          : "bg-card/50 hover:bg-accent/40 border-border/60 hover:border-border"
       )}
     >
-      <button
-        onClick={toggleSelection}
-        className={cn(
-          "flex items-center justify-center w-4 h-4 rounded border transition-colors shrink-0",
-          isSelected
-            ? "bg-primary border-primary text-primary-foreground"
-            : "border-muted-foreground/40 hover:border-primary"
-        )}
-      >
-        {isSelected && <Check className="h-2.5 w-2.5" />}
-      </button>
+      {/* Checkbox button */}
+      {!file.is_dir && (
+        <div
+          className={cn(
+            "flex items-center justify-center w-4 h-4 rounded border transition-colors shrink-0",
+            isSelected
+              ? "bg-primary border-primary text-primary-foreground shadow-sm shadow-primary/20"
+              : "border-muted-foreground/30 group-hover:border-primary/60 bg-background/50"
+          )}
+        >
+          {isSelected && <Check className="h-2.5 w-2.5 stroke-[3]" />}
+        </div>
+      )}
 
-      <div className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer" onClick={toggleSelection}>
-        {getFileIcon()}
-        <span className="flex-1 truncate">{file.name}</span>
-        {!file.is_dir && file.size && (
-          <span className="text-[11px] text-muted-foreground shrink-0 font-mono">
-            {formatBytes(file.size)}
+      {/* Visual Icon / Thumbnail */}
+      {renderIconOrThumb()}
+
+      {/* Name & Details */}
+      <div className="flex-1 min-w-0 pr-1">
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium truncate text-foreground text-xs leading-snug">
+            {file.name}
           </span>
-        )}
+          {getFileBadge()}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground">
+          {!file.is_dir && file.size ? (
+            <span className="font-mono">{formatBytes(file.size)}</span>
+          ) : (
+            <span className="text-amber-500 font-medium">Folder</span>
+          )}
+        </div>
       </div>
 
+      {/* Instant Video/Audio Stream Preview Button */}
       {hasStreamPreview && (
         <button
           onClick={(e) => {
             e.stopPropagation();
             onPreview(file);
           }}
-          className="p-1 hover:bg-primary/10 hover:text-primary rounded text-muted-foreground transition-colors shrink-0"
-          title="Preview video stream"
+          className="p-1.5 hover:bg-primary/15 text-muted-foreground hover:text-primary rounded-lg transition-colors shrink-0 opacity-80 group-hover:opacity-100"
+          title="Instant Media Preview"
         >
           <Play className="h-3.5 w-3.5 fill-current" />
         </button>
@@ -140,7 +305,8 @@ export function SelectAllButton({
   selectedFiles,
   onSelectionChange,
 }: FileListProps) {
-  const allIds = files.map((file) => file.fs_id);
+  const selectableFiles = files.filter(f => !f.is_dir);
+  const allIds = selectableFiles.map((file) => file.fs_id);
   const allSelected = allIds.length > 0 && allIds.every((id) => selectedFiles.has(id));
 
   const toggleSelectAll = () => {
@@ -155,13 +321,23 @@ export function SelectAllButton({
     <button
       onClick={toggleSelectAll}
       className={cn(
-        "flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors",
+        "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border",
         allSelected
-          ? "bg-primary text-primary-foreground"
-          : "bg-muted/70 hover:bg-muted text-muted-foreground"
+          ? "bg-primary/10 border-primary/30 text-primary"
+          : "bg-muted/40 hover:bg-muted border-transparent text-muted-foreground hover:text-foreground"
       )}
     >
-      {allSelected ? "Deselect All" : "Select All"}
+      {allSelected ? (
+        <>
+          <CheckSquare className="h-3.5 w-3.5 text-primary" />
+          <span>Deselect All</span>
+        </>
+      ) : (
+        <>
+          <Square className="h-3.5 w-3.5 opacity-60" />
+          <span>Select All</span>
+        </>
+      )}
     </button>
   );
 }
