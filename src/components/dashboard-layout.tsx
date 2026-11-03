@@ -323,23 +323,23 @@ export function DashboardLayout() {
   const healthyCount = endpointStats.filter(e => e.healthy).length;
 
   return (
-    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden select-none">
+    <div className="h-screen h-[100dvh] flex flex-col bg-background text-foreground overflow-hidden select-none">
       
       {/* Impeccable Header Bar */}
-      <header className="glass-panel border-b border-border/60 px-4 md:px-6 py-2.5 flex items-center justify-between shrink-0 z-30">
+      <header className="glass-panel border-b border-border/60 px-3 sm:px-4 md:px-6 py-2.5 pt-[calc(0.625rem+var(--sat))] flex items-center justify-between shrink-0 z-30">
         
         {/* Brand Logo & Name */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 sm:gap-3">
           <div className="relative group cursor-default">
             <img 
               src="/logo.svg" 
               alt="TeraLace Logo" 
-              className="w-8 h-8 rounded-xl object-contain transition-transform duration-200 group-hover:scale-105"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl object-contain transition-transform duration-200 group-hover:scale-105"
             />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-base md:text-lg tracking-tight text-foreground">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="font-bold text-sm sm:text-base md:text-lg tracking-tight text-foreground">
                 TeraLace
               </span>
               <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-full font-mono font-medium">
@@ -350,10 +350,10 @@ export function DashboardLayout() {
         </div>
 
         {/* Center: Live Telemetry & API Pool Status Widget */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 sm:gap-2.5">
           {/* Live Global Download Speed Indicator */}
           {totalSpeed > 0 && (
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold bg-primary/10 text-primary border border-primary/25 animate-pulse shadow-sm shadow-primary/10 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-xs font-mono font-semibold bg-primary/10 text-primary border border-primary/25 animate-pulse shadow-sm shadow-primary/10 animate-in fade-in zoom-in-95 duration-200">
               <Zap className="h-3.5 w-3.5 fill-current" />
               <span>{formatSpeed(totalSpeed)}</span>
             </div>
@@ -393,11 +393,11 @@ export function DashboardLayout() {
         </div>
 
         {/* Right Action Icons Group */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <Button 
             variant="ghost" 
             size="icon" 
-            className="h-8 w-8 text-muted-foreground hover:text-foreground transition-colors"
+            className="h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground transition-colors"
             onClick={() => openDownloadDir(downloadDir || undefined)} 
             title="Open Download Folder"
             aria-label="Open download folder"
@@ -410,7 +410,7 @@ export function DashboardLayout() {
           <Button 
             variant="ghost" 
             size="icon" 
-            className="h-8 w-8 text-muted-foreground hover:text-foreground transition-colors"
+            className="h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground transition-colors"
             onClick={() => setShowSettings(true)} 
             title="Settings & Config"
             aria-label="Settings and configuration"
@@ -427,7 +427,7 @@ export function DashboardLayout() {
           aria-selected={mobileTab === 'source'}
           onClick={() => setMobileTab('source')}
           className={cn(
-            "flex-1 py-2.5 flex items-center justify-center gap-1.5 border-b-2 transition-all",
+            "flex-1 py-3 min-h-[44px] flex items-center justify-center gap-1.5 border-b-2 transition-all",
             mobileTab === 'source'
               ? "border-primary text-primary font-semibold bg-primary/5"
               : "border-transparent text-muted-foreground hover:text-foreground"
@@ -446,7 +446,7 @@ export function DashboardLayout() {
           aria-selected={mobileTab === 'queue'}
           onClick={() => setMobileTab('queue')}
           className={cn(
-            "flex-1 py-2.5 flex items-center justify-center gap-1.5 border-b-2 transition-all",
+            "flex-1 py-3 min-h-[44px] flex items-center justify-center gap-1.5 border-b-2 transition-all",
             mobileTab === 'queue'
               ? "border-primary text-primary font-semibold bg-primary/5"
               : "border-transparent text-muted-foreground hover:text-foreground"
@@ -499,7 +499,7 @@ export function DashboardLayout() {
                     {url ? (
                       <button 
                         onClick={() => setUrl("")}
-                        className="p-1.5 text-muted-foreground hover:text-foreground rounded-md transition-colors"
+                        className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-foreground rounded-md transition-colors active:scale-95"
                         title="Clear"
                         aria-label="Clear link input"
                       >
@@ -508,7 +508,7 @@ export function DashboardLayout() {
                     ) : (
                       <button 
                         onClick={handlePasteClipboard}
-                        className="p-1.5 text-muted-foreground hover:text-primary rounded-md transition-colors"
+                        className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-primary rounded-md transition-colors active:scale-95"
                         title="Paste from clipboard"
                         aria-label="Paste link from clipboard"
                       >
@@ -594,9 +594,9 @@ export function DashboardLayout() {
             </CardContent>
 
             {/* Sticky Action Footer */}
-            <div className="p-3 border-t border-border/60 bg-muted/20 shrink-0">
+            <div className="p-3 pb-[calc(0.75rem+var(--sab))] md:pb-3 border-t border-border/60 bg-muted/20 shrink-0">
               <Button 
-                className="w-full h-9 font-medium shadow-sm transition-all" 
+                className="w-full h-10 sm:h-9 font-medium shadow-sm transition-all" 
                 onClick={handleDownloadSelected}
                 disabled={selectedCount === 0}
               >
@@ -706,7 +706,7 @@ export function DashboardLayout() {
 
             {/* Queue Telemetry Footer */}
             {queue.length > 0 && (
-              <div className="p-2.5 px-4 bg-muted/30 border-t border-border/60 text-[11px] text-muted-foreground flex items-center justify-between shrink-0 font-medium">
+              <div className="p-2.5 px-3 sm:px-4 pb-[calc(0.625rem+var(--sab))] md:pb-2.5 bg-muted/30 border-t border-border/60 text-[11px] text-muted-foreground flex items-center justify-between shrink-0 font-medium">
                 <div className="flex items-center gap-3">
                   <span className="flex items-center gap-1">
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
@@ -732,37 +732,37 @@ export function DashboardLayout() {
 
       {/* Video/Audio Stream Preview Modal */}
       {previewMediaUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-200">
           <div 
             role="dialog"
             aria-modal="true"
             aria-labelledby="preview-modal-title"
-            className="bg-background border border-border/80 rounded-2xl overflow-hidden w-full max-w-[820px] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200"
+            className="bg-background border border-border/80 rounded-2xl overflow-hidden w-full max-w-[820px] max-h-[90dvh] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200"
           >
-            <div className="flex items-center justify-between p-3.5 px-4 border-b bg-card">
+            <div className="flex items-center justify-between p-3 sm:p-3.5 px-3.5 sm:px-4 border-b bg-card">
               <div className="flex items-center gap-2 min-w-0 pr-2">
                 <Film className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
                 <span id="preview-modal-title" className="font-medium text-xs truncate">{previewMediaName}</span>
-                <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.2 rounded font-mono">
+                <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.2 rounded font-mono shrink-0">
                   Live Stream
                 </span>
               </div>
               <Button 
                 variant="ghost" 
                 size="icon" 
-                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
                 onClick={() => setPreviewMediaUrl(null)}
                 aria-label="Close preview"
               >
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <div className="bg-black flex items-center justify-center min-h-[320px] max-h-[75vh]">
+            <div className="bg-black flex items-center justify-center min-h-[220px] sm:min-h-[320px] max-h-[75dvh]">
               <video 
                 src={previewMediaUrl} 
                 controls 
                 autoPlay 
-                className="max-h-[75vh] w-full"
+                className="max-h-[75dvh] w-full object-contain"
               />
             </div>
           </div>
@@ -771,23 +771,23 @@ export function DashboardLayout() {
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-200">
           <div 
             role="dialog"
             aria-modal="true"
             aria-labelledby="settings-modal-title"
-            className="bg-background border border-border/80 rounded-2xl shadow-2xl w-full max-w-[580px] max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden"
+            className="bg-background border border-border/80 rounded-2xl shadow-2xl w-full max-w-[580px] max-h-[92dvh] sm:max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden"
           >
             
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5 bg-card/60">
+            <div className="flex items-center justify-between border-b border-border/60 px-4 sm:px-5 py-3.5 bg-card/60">
               <h2 id="settings-modal-title" className="text-sm font-semibold flex items-center gap-2">
                 <Settings className="h-4 w-4 text-primary" aria-hidden="true" /> Settings & API Routing
               </h2>
               <Button 
                 variant="ghost" 
                 size="icon" 
-                className="h-7 w-7"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
                 onClick={() => setShowSettings(false)}
                 aria-label="Close settings"
               >
@@ -796,7 +796,7 @@ export function DashboardLayout() {
             </div>
 
             {/* Modal Navigation Tabs */}
-            <div role="tablist" aria-label="Settings categories" className="flex border-b border-border/60 bg-muted/20 px-5 gap-2 text-xs shrink-0">
+            <div role="tablist" aria-label="Settings categories" className="flex border-b border-border/60 bg-muted/20 px-3 sm:px-5 gap-1 sm:gap-2 text-xs shrink-0 overflow-x-auto no-scrollbar">
               <button
                 role="tab"
                 id="tab-general"
@@ -804,7 +804,7 @@ export function DashboardLayout() {
                 aria-selected={settingsTab === 'general'}
                 onClick={() => setSettingsTab('general')}
                 className={cn(
-                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none",
+                  "py-2.5 px-2 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none shrink-0",
                   settingsTab === 'general' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -817,7 +817,7 @@ export function DashboardLayout() {
                 aria-selected={settingsTab === 'api'}
                 onClick={() => setSettingsTab('api')}
                 className={cn(
-                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none",
+                  "py-2.5 px-2 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none shrink-0",
                   settingsTab === 'api' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -830,7 +830,7 @@ export function DashboardLayout() {
                 aria-selected={settingsTab === 'cookie'}
                 onClick={() => setSettingsTab('cookie')}
                 className={cn(
-                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none",
+                  "py-2.5 px-2 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none shrink-0",
                   settingsTab === 'cookie' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -843,7 +843,7 @@ export function DashboardLayout() {
                 aria-selected={settingsTab === 'about'}
                 onClick={() => setSettingsTab('about')}
                 className={cn(
-                  "py-2.5 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none",
+                  "py-2.5 px-2 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none shrink-0",
                   settingsTab === 'about' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -1160,9 +1160,9 @@ export function DashboardLayout() {
             </div>
 
             {/* Modal Footer */}
-            <div className="flex justify-end p-3.5 px-5 border-t border-border/60 bg-muted/20 gap-2 shrink-0">
-              <Button variant="outline" size="sm" onClick={() => setShowSettings(false)}>Cancel</Button>
-              <Button size="sm" onClick={handleSaveSettings}>Save Changes</Button>
+            <div className="flex justify-end p-3.5 px-4 sm:px-5 pb-[calc(0.875rem+var(--sab))] border-t border-border/60 bg-muted/20 gap-2 shrink-0">
+              <Button variant="outline" size="sm" className="h-9 px-3.5" onClick={() => setShowSettings(false)}>Cancel</Button>
+              <Button size="sm" className="h-9 px-4" onClick={handleSaveSettings}>Save Changes</Button>
             </div>
           </div>
         </div>
@@ -1190,7 +1190,7 @@ function QueueItemRow({
 
   return (
     <div className={cn(
-      "p-3 md:p-3.5 flex items-center gap-3 transition-colors group select-none animate-in fade-in slide-in-from-top-1 duration-200",
+      "p-3 md:p-3.5 min-h-[52px] flex items-center gap-3 transition-colors group select-none animate-in fade-in slide-in-from-top-1 duration-200",
       isActive ? "bg-primary/5" : "hover:bg-accent/30",
       item.status === 'completed' && "opacity-90 bg-muted/10"
     )}>
@@ -1205,7 +1205,7 @@ function QueueItemRow({
               <Button 
                 variant="ghost" 
                 size="icon" 
-                className="h-6 w-6 text-muted-foreground hover:text-primary transition-colors"
+                className="h-7 w-7 sm:h-6 sm:w-6 text-muted-foreground hover:text-primary transition-colors"
                 onClick={(e) => {
                   e.stopPropagation();
                   onOpenFolder();
@@ -1221,7 +1221,7 @@ function QueueItemRow({
               <Button 
                 variant="ghost" 
                 size="icon" 
-                className="h-6 w-6 text-muted-foreground hover:text-primary transition-colors"
+                className="h-7 w-7 sm:h-6 sm:w-6 text-muted-foreground hover:text-primary transition-colors"
                 onClick={(e) => {
                   e.stopPropagation();
                   onPreview();
@@ -1237,7 +1237,7 @@ function QueueItemRow({
               <Button 
                 variant="ghost" 
                 size="icon" 
-                className="h-6 w-6 text-muted-foreground hover:text-primary transition-colors"
+                className="h-7 w-7 sm:h-6 sm:w-6 text-muted-foreground hover:text-primary transition-colors"
                 onClick={(e) => {
                   e.stopPropagation();
                   onRetry();
@@ -1263,7 +1263,7 @@ function QueueItemRow({
               <Button 
                 variant="ghost" 
                 size="icon" 
-                className="h-6 w-6 text-muted-foreground hover:text-destructive transition-colors ml-0.5"
+                className="h-7 w-7 sm:h-6 sm:w-6 text-muted-foreground hover:text-destructive transition-colors ml-0.5"
                 onClick={(e) => {
                   e.stopPropagation();
                   onRemove();

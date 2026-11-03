@@ -254,7 +254,7 @@ function FileItem({
       }}
       tabIndex={file.is_dir ? -1 : 0}
       className={cn(
-        "flex items-center gap-2.5 p-2 rounded-xl border transition-all text-xs group cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        "flex items-center gap-2.5 p-2 sm:p-2.5 min-h-[48px] rounded-xl border transition-all text-xs group cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         isSelected
           ? "bg-primary/10 border-primary/40 shadow-sm"
           : "bg-card/50 hover:bg-accent/40 border-border/60 hover:border-border"
