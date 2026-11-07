@@ -487,7 +487,7 @@ export function DashboardLayout() {
                 TeraLace
               </span>
               <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-full font-mono font-medium">
-                v1.1.1
+                v1.1.2
               </span>
             </div>
           </div>
@@ -1285,7 +1285,7 @@ export function DashboardLayout() {
                     <div>
                       <h3 className="font-bold text-sm text-foreground">TeraLace</h3>
                       <p className="text-[11px] text-muted-foreground">Fast, resilient multiplatform TeraBox downloader</p>
-                      <p className="text-[10px] text-primary font-mono font-medium mt-0.5">Version 1.1.1 (GPL-3.0)</p>
+                      <p className="text-[10px] text-primary font-mono font-medium mt-0.5">Version 1.1.2 (GPL-3.0)</p>
                     </div>
                   </div>
 
