@@ -51,7 +51,7 @@ export function useDownloadQueue() {
           speed: 0,
           downloaded: 0,
           total: file.size || 0,
-          params: { ...params, fs_id: file.fs_id, direct_link: file.direct_link },
+          params: { ...params, fs_id: file.fs_id, direct_link: file.direct_link, path: file.path },
           downloadDir
         }));
       return [...prev, ...newItems];

@@ -14,6 +14,8 @@ pub struct TeraboxFileInfo {
     pub thumb: Option<String>,
     /// Direct download link if provided directly by the fetch API
     pub direct_link: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +31,8 @@ pub struct TeraboxInfo {
     pub error_message: Option<String>,
     #[serde(default)]
     pub resolved_by: Option<String>,
+    #[serde(default)]
+    pub surl: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +45,10 @@ pub struct DownloadParams {
     #[serde(default = "default_mode")]
     pub mode: i32, // 1 for Server 1, 2 for Server 2
     pub direct_link: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub surl: Option<String>,
 }
 
 fn default_mode() -> i32 {
@@ -52,6 +60,15 @@ pub struct DownloadLink {
     pub ok: bool,
     pub download_link: Option<String>,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShareMeta {
+    pub shareid: i64,
+    pub uk: i64,
+    pub sign: String,
+    pub timestamp: i64,
+    pub total: i64,
 }
 
 /// Endpoint configuration model for storage and frontend IPC
@@ -103,6 +120,8 @@ pub struct AbdulFileItem {
     pub size_readable: Option<String>,
     pub download_url: Option<String>,
     pub direct_link: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
     pub thumb: Option<String>,
     pub fs_id: Option<serde_json::Value>,
     pub is_dir: Option<serde_json::Value>,

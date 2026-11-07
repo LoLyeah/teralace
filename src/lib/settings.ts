@@ -1,5 +1,6 @@
 import { load } from '@tauri-apps/plugin-store';
 import { ApiEndpointConfig } from './types';
+import { saveTeraboxCookie } from './api';
 
 const STORE_PATH = 'settings.json';
 
@@ -53,7 +54,11 @@ export async function loadSettings(): Promise<AppSettings> {
   try {
     const s = await getStore();
     const val = await s.get('config');
-    return { ...DEFAULT_SETTINGS, ...val };
+    const result: AppSettings = { ...DEFAULT_SETTINGS, ...val };
+    if (result.teraboxCookie) {
+      saveTeraboxCookie(result.teraboxCookie).catch(() => {});
+    }
+    return result;
   } catch (e) {
     console.error("Failed to load settings:", e);
     return DEFAULT_SETTINGS;
@@ -65,6 +70,9 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
     const s = await getStore();
     await s.set('config', settings);
     await s.save();
+    if (settings.teraboxCookie !== undefined) {
+      await saveTeraboxCookie(settings.teraboxCookie).catch(() => {});
+    }
   } catch (e) {
     console.error("Failed to save settings:", e);
   }

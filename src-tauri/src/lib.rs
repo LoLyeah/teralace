@@ -25,19 +25,76 @@ static TERABOX_API: LazyLock<TeraboxApi> = LazyLock::new(|| {
 });
 
 fn get_settings(handle: &tauri::AppHandle) -> AppSettings {
-    if let Ok(store) = handle.store("settings") {
+    let mut settings = if let Ok(store) = handle.store("settings") {
         if let Some(value) = store.get("app_settings") {
-            return serde_json::from_value(value).unwrap_or_default();
+            serde_json::from_value(value).unwrap_or_default()
+        } else {
+            AppSettings::default()
+        }
+    } else {
+        AppSettings::default()
+    };
+
+    // Cross-check store "settings.json" (written by frontend saveSettings under "config")
+    if let Ok(json_store) = handle.store("settings.json") {
+        if let Some(val) = json_store.get("config") {
+            if let Some(cookie) = val.get("teraboxCookie").and_then(|c| c.as_str()) {
+                let trimmed = cookie.trim();
+                if !trimmed.is_empty() && settings.terabox_cookie.as_deref().unwrap_or("").is_empty() {
+                    settings.terabox_cookie = Some(trimmed.to_string());
+                }
+            }
+            if let Some(dir) = val.get("downloadDir").and_then(|d| d.as_str()) {
+                let trimmed = dir.trim();
+                if !trimmed.is_empty() && (settings.download_dir.is_empty() || settings.download_dir == "downloads") {
+                    settings.download_dir = trimmed.to_string();
+                }
+            }
+            if let Some(concurrent) = val.get("maxConcurrent").and_then(|c| c.as_u64()) {
+                if concurrent > 0 {
+                    settings.max_concurrent = concurrent as u32;
+                }
+            }
         }
     }
-    AppSettings::default()
+
+    settings
 }
 
 fn save_settings(handle: &tauri::AppHandle, settings: &AppSettings) -> Result<(), String> {
-    let store = handle.store("settings").map_err(|e| e.to_string())?;
-    let value = serde_json::to_value(settings)
-        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    store.set("app_settings", value);
+    if let Ok(store) = handle.store("settings") {
+        let value = serde_json::to_value(settings)
+            .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+        store.set("app_settings", value);
+        let _ = store.save();
+    }
+
+    // Mirror to settings.json for seamless frontend synchronization
+    if let Ok(json_store) = handle.store("settings.json") {
+        let mut config = json_store.get("config").unwrap_or_else(|| serde_json::json!({}));
+        if let Some(obj) = config.as_object_mut() {
+            if let Some(ref cookie) = settings.terabox_cookie {
+                obj.insert("teraboxCookie".to_string(), serde_json::Value::String(cookie.clone()));
+            }
+            if !settings.download_dir.is_empty() {
+                obj.insert("downloadDir".to_string(), serde_json::Value::String(settings.download_dir.clone()));
+            }
+            obj.insert("maxConcurrent".to_string(), serde_json::json!(settings.max_concurrent));
+        }
+        json_store.set("config", config);
+        let _ = json_store.save();
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn save_terabox_cookie(handle: tauri::AppHandle, cookie: String) -> Result<(), String> {
+    let mut settings = get_settings(&handle);
+    let trimmed = cookie.trim().to_string();
+    settings.terabox_cookie = if trimmed.is_empty() { None } else { Some(trimmed) };
+    save_settings(&handle, &settings)?;
+    log::info!("[save_terabox_cookie] TeraBox session cookie updated (has_cookie: {})", settings.terabox_cookie.is_some());
     Ok(())
 }
 
@@ -51,6 +108,30 @@ async fn get_terabox_info(handle: tauri::AppHandle, url: String) -> Result<Terab
 
     TERABOX_API
         .get_info(&url, settings.terabox_cookie.as_deref())
+        .await
+}
+
+#[tauri::command]
+async fn get_folder_contents(
+    handle: tauri::AppHandle,
+    surl: String,
+    folder_path: String,
+) -> Result<Vec<TeraboxFileInfo>, String> {
+    let settings = get_settings(&handle);
+    TERABOX_API
+        .get_folder_contents(&surl, &folder_path, settings.terabox_cookie.as_deref())
+        .await
+}
+
+#[tauri::command]
+async fn get_folder_files_recursive(
+    handle: tauri::AppHandle,
+    surl: String,
+    folder_path: String,
+) -> Result<Vec<TeraboxFileInfo>, String> {
+    let settings = get_settings(&handle);
+    TERABOX_API
+        .get_folder_files_recursive(&surl, &folder_path, settings.terabox_cookie.as_deref())
         .await
 }
 
@@ -99,7 +180,7 @@ async fn add_download(
     let settings = get_settings(&handle);
     let mut headers = Vec::new();
     if let Some(cookie) = &settings.terabox_cookie {
-        let cookie_str = cookie.trim();
+        let cookie_str = cookie.trim().trim_matches('"').trim_matches('\'').trim();
         if !cookie_str.is_empty() {
             let formatted = if cookie_str.contains('=') {
                 cookie_str.to_string()
@@ -389,6 +470,8 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             get_terabox_info,
+            get_folder_contents,
+            get_folder_files_recursive,
             get_download_link,
             extract_shorturl,
             get_endpoint_stats,
@@ -409,6 +492,7 @@ pub fn run() {
             get_bandwidth_limit,
             get_app_settings,
             save_app_settings,
+            save_terabox_cookie,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

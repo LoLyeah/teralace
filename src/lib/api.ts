@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   TeraboxInfo,
+  TeraboxFileInfo,
   DownloadParams,
   DownloadLink,
   DownloadInfo,
@@ -11,6 +12,26 @@ import type {
 
 export async function getTeraboxInfo(url: string): Promise<TeraboxInfo> {
   return invoke<TeraboxInfo>("get_terabox_info", { url });
+}
+
+export async function getFolderContents(
+  surl: string,
+  folderPath: string
+): Promise<TeraboxFileInfo[]> {
+  return invoke<TeraboxFileInfo[]>("get_folder_contents", {
+    surl,
+    folderPath,
+  });
+}
+
+export async function getFolderFilesRecursive(
+  surl: string,
+  folderPath: string
+): Promise<TeraboxFileInfo[]> {
+  return invoke<TeraboxFileInfo[]>("get_folder_files_recursive", {
+    surl,
+    folderPath,
+  });
 }
 
 export async function getDownloadLink(
@@ -127,4 +148,8 @@ export async function getAppSettings(): Promise<AppSettings> {
 
 export async function saveAppSettings(settings: AppSettings): Promise<void> {
   return invoke<void>("save_app_settings", { settings });
+}
+
+export async function saveTeraboxCookie(cookie: string): Promise<void> {
+  return invoke<void>("save_terabox_cookie", { cookie });
 }

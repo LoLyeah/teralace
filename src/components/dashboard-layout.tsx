@@ -16,8 +16,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { FileList, SelectAllButton } from "./file-list";
 import { ThemeToggle } from "./theme-toggle";
 import { 
-  getTeraboxInfo, formatBytes, formatSpeed, formatEta, stopAria2, setBandwidthLimit, 
-  getBandwidthLimit, getEndpointStats, saveApiEndpoints, openDownloadDir 
+  getTeraboxInfo, getFolderContents, getFolderFilesRecursive, formatBytes, formatSpeed, formatEta, stopAria2, setBandwidthLimit, 
+  getBandwidthLimit, getEndpointStats, saveApiEndpoints, openDownloadDir, saveTeraboxCookie 
 } from "../lib/api";
 import { loadSettings, saveSettings, DEFAULT_ENDPOINTS } from "../lib/settings";
 import { 
@@ -61,6 +61,12 @@ export function DashboardLayout() {
   const [newEpUrl, setNewEpUrl] = useState("");
   const [newEpToken, setNewEpToken] = useState("");
 
+  // Subfolder & Path Navigation
+  const [currentPath, setCurrentPath] = useState<string>("");
+  const [folderCache, setFolderCache] = useState<Record<string, TeraboxFileInfo[]>>({});
+  const [isLoadingFolder, setIsLoadingFolder] = useState<boolean>(false);
+  const [isQueuingFolder, setIsQueuingFolder] = useState<string | null>(null);
+
   const {
     queue,
     addToQueue,
@@ -86,13 +92,25 @@ export function DashboardLayout() {
     return queue.filter(item => item.status === 'downloading').length;
   }, [queue]);
 
+  // Currently visible files based on active directory path
+  const currentFiles = useMemo(() => {
+    if (currentPath && folderCache[currentPath]) {
+      return folderCache[currentPath];
+    }
+    return teraboxInfo?.list || [];
+  }, [currentPath, folderCache, teraboxInfo]);
+
   // Selected files count & total size
   const { selectedCount, selectedSize } = useMemo(() => {
     if (!teraboxInfo) return { selectedCount: 0, selectedSize: 0 };
-    const selected = teraboxInfo.list.filter(f => selectedFiles.has(f.fs_id) && !f.is_dir);
+    const allKnown = Object.values(folderCache).flat();
+    const source = allKnown.length > 0 ? allKnown : teraboxInfo.list;
+    const selected = source.filter((f, idx, arr) => 
+      selectedFiles.has(f.fs_id) && !f.is_dir && arr.findIndex(x => x.fs_id === f.fs_id) === idx
+    );
     const size = selected.reduce((acc, f) => acc + (f.size || 0), 0);
     return { selectedCount: selected.length, selectedSize: size };
-  }, [teraboxInfo, selectedFiles]);
+  }, [teraboxInfo, selectedFiles, folderCache]);
 
   // Load Settings
   useEffect(() => {
@@ -105,6 +123,7 @@ export function DashboardLayout() {
       }
       if (settings.teraboxCookie) {
         setTeraboxCookie(settings.teraboxCookie);
+        saveTeraboxCookie(settings.teraboxCookie).catch(() => {});
       }
       try {
         const [overallLimit, downloadLimit] = await getBandwidthLimit();
@@ -146,6 +165,12 @@ export function DashboardLayout() {
       apiEndpoints,
       teraboxCookie,
     });
+
+    try {
+      await saveTeraboxCookie(teraboxCookie);
+    } catch (e) {
+      console.error("Failed to save TeraBox cookie to backend:", e);
+    }
 
     try {
       await saveApiEndpoints(apiEndpoints);
@@ -281,11 +306,20 @@ export function DashboardLayout() {
     setError(null);
     setTeraboxInfo(null);
     setSelectedFiles(new Set());
+    setFolderCache({});
 
     try {
+      let initialPath = "";
+      try {
+        const u = new URL(url.startsWith("http") ? url : `https://${url}`);
+        initialPath = u.searchParams.get("path") || "";
+      } catch {}
+
       const info = await getTeraboxInfo(url);
       if (info.ok) {
         setTeraboxInfo(info);
+        setCurrentPath(initialPath);
+        setFolderCache({ [initialPath]: info.list });
       } else {
         setError(info.error_message || "Failed to fetch file info. Please check the URL.");
       }
@@ -296,9 +330,118 @@ export function DashboardLayout() {
     }
   }, [url]);
 
+  const handleOpenFolder = useCallback(async (folder: TeraboxFileInfo) => {
+    if (!teraboxInfo) return;
+    const targetPath = folder.path || (currentPath ? `${currentPath}/${folder.name}` : `/${folder.name}`);
+
+    if (folderCache[targetPath]) {
+      setCurrentPath(targetPath);
+      return;
+    }
+
+    setIsLoadingFolder(true);
+    try {
+      const files = await getFolderContents(teraboxInfo.surl || url, targetPath);
+      setFolderCache(prev => ({ ...prev, [targetPath]: files }));
+      setCurrentPath(targetPath);
+    } catch (err: any) {
+      setError(typeof err === "string" ? err : err.message || "Failed to open folder");
+    } finally {
+      setIsLoadingFolder(false);
+    }
+  }, [teraboxInfo, currentPath, folderCache, url]);
+
+  const handleNavigatePath = useCallback(async (targetPath: string) => {
+    if (!teraboxInfo) return;
+    if (targetPath === currentPath) return;
+
+    if (folderCache[targetPath]) {
+      setCurrentPath(targetPath);
+      return;
+    }
+
+    setIsLoadingFolder(true);
+    try {
+      const files = await getFolderContents(teraboxInfo.surl || url, targetPath);
+      setFolderCache(prev => ({ ...prev, [targetPath]: files }));
+      setCurrentPath(targetPath);
+    } catch (err: any) {
+      setError(typeof err === "string" ? err : err.message || "Failed to navigate to folder");
+    } finally {
+      setIsLoadingFolder(false);
+    }
+  }, [teraboxInfo, currentPath, folderCache, url]);
+
+  const handleDownloadFolder = useCallback(async (folder: TeraboxFileInfo) => {
+    if (!teraboxInfo) return;
+    const targetPath = folder.path || (currentPath ? `${currentPath}/${folder.name}` : `/${folder.name}`);
+    setIsQueuingFolder(folder.name);
+
+    try {
+      const files = await getFolderFilesRecursive(teraboxInfo.surl || url, targetPath);
+      if (files.length === 0) {
+        setError(`Folder "${folder.name}" is empty or has no downloadable files.`);
+        return;
+      }
+
+      addToQueue(files, {
+        shareid: teraboxInfo.shareid,
+        uk: teraboxInfo.uk,
+        sign: teraboxInfo.sign,
+        timestamp: teraboxInfo.timestamp,
+        mode: downloadMode,
+        surl: teraboxInfo.surl || undefined,
+      }, downloadDir || undefined);
+
+      startQueue();
+      setMobileTab('queue');
+    } catch (err: any) {
+      setError(typeof err === "string" ? err : err.message || `Failed to queue folder "${folder.name}"`);
+    } finally {
+      setIsQueuingFolder(null);
+    }
+  }, [teraboxInfo, currentPath, url, downloadMode, downloadDir, addToQueue, startQueue]);
+
+  const handleSelectFolder = useCallback(async (folder: TeraboxFileInfo) => {
+    if (!teraboxInfo) return;
+    const targetPath = folder.path || (currentPath ? `${currentPath}/${folder.name}` : `/${folder.name}`);
+    setIsLoadingFolder(true);
+    try {
+      const files = await getFolderContents(teraboxInfo.surl || url, targetPath);
+      setFolderCache(prev => ({ ...prev, [targetPath]: files }));
+      setSelectedFiles(prev => {
+        const next = new Set(prev);
+        files.filter(f => !f.is_dir).forEach(f => next.add(f.fs_id));
+        return next;
+      });
+    } catch (err: any) {
+      setError(typeof err === "string" ? err : err.message || `Failed to select files in "${folder.name}"`);
+    } finally {
+      setIsLoadingFolder(false);
+    }
+  }, [teraboxInfo, currentPath, url]);
+
+  const handleDownloadFile = useCallback((file: TeraboxFileInfo) => {
+    if (!teraboxInfo || file.is_dir) return;
+    addToQueue([file], {
+      shareid: teraboxInfo.shareid,
+      uk: teraboxInfo.uk,
+      sign: teraboxInfo.sign,
+      timestamp: teraboxInfo.timestamp,
+      mode: downloadMode,
+      surl: teraboxInfo.surl || undefined,
+    }, downloadDir || undefined);
+    startQueue();
+    setMobileTab('queue');
+  }, [teraboxInfo, downloadMode, downloadDir, addToQueue, startQueue]);
+
   const handleDownloadSelected = () => {
     if (!teraboxInfo) return;
-    const filesToDownload = teraboxInfo.list.filter(f => selectedFiles.has(f.fs_id) && !f.is_dir);
+    const allKnown = Object.values(folderCache).flat();
+    const source = allKnown.length > 0 ? allKnown : teraboxInfo.list;
+    const filesToDownload = source.filter((f, idx, arr) => 
+      selectedFiles.has(f.fs_id) && !f.is_dir && arr.findIndex(x => x.fs_id === f.fs_id) === idx
+    );
     
     addToQueue(filesToDownload, {
       shareid: teraboxInfo.shareid,
@@ -306,6 +449,7 @@ export function DashboardLayout() {
       sign: teraboxInfo.sign,
       timestamp: teraboxInfo.timestamp,
       mode: downloadMode,
+      surl: teraboxInfo.surl || undefined,
     }, downloadDir || undefined);
     
     startQueue();
@@ -334,7 +478,7 @@ export function DashboardLayout() {
             <img 
               src="/logo.svg" 
               alt="TeraLace Logo" 
-              className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl object-contain transition-transform duration-200 group-hover:scale-105"
+              className="w-7 h-7 sm:w-8 sm:h-8 object-contain transition-transform duration-200 group-hover:scale-105 drop-shadow-sm"
             />
           </div>
           <div>
@@ -561,24 +705,37 @@ export function DashboardLayout() {
             <CardHeader className="py-2.5 px-3.5 md:px-4 border-b border-border/60 flex flex-row items-center justify-between shrink-0 bg-muted/20">
               <CardTitle className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                 <Layers className="h-3.5 w-3.5 text-primary" />
-                <span>Files {teraboxInfo && `(${teraboxInfo.list.length})`}</span>
+                <span>Files {teraboxInfo && `(${currentFiles.length})`}</span>
               </CardTitle>
               {teraboxInfo && (
                 <SelectAllButton 
-                  files={teraboxInfo.list} 
+                  files={currentFiles} 
                   selectedFiles={selectedFiles} 
                   onSelectionChange={setSelectedFiles} 
                 />
               )}
             </CardHeader>
 
-            <CardContent className="flex-1 overflow-y-auto p-2.5 md:p-3">
+            <CardContent className="flex-1 overflow-y-auto p-2.5 md:p-3 flex flex-col">
+              {isQueuingFolder && (
+                <div className="mb-2 p-2 bg-primary/10 border border-primary/20 rounded-xl flex items-center gap-2 text-xs text-primary animate-in fade-in duration-150 shrink-0">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                  <span className="truncate">Scanning and queuing all files in <strong className="font-semibold">{isQueuingFolder}</strong>...</span>
+                </div>
+              )}
               {teraboxInfo ? (
                 <FileList 
-                  files={teraboxInfo.list} 
+                  files={currentFiles} 
                   selectedFiles={selectedFiles} 
                   onSelectionChange={setSelectedFiles} 
                   onPreview={handlePreviewFile}
+                  onOpenFolder={handleOpenFolder}
+                  currentPath={currentPath}
+                  onNavigatePath={handleNavigatePath}
+                  isLoadingFolder={isLoadingFolder}
+                  onDownloadFolder={handleDownloadFolder}
+                  onSelectFolder={handleSelectFolder}
+                  onDownloadFile={handleDownloadFile}
                 />
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50 p-6 text-center select-none">
@@ -1124,7 +1281,7 @@ export function DashboardLayout() {
                   className="space-y-4 py-1 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
                 >
                   <div className="flex items-center gap-3 p-3 bg-muted/20 border border-border/60 rounded-xl">
-                    <img src="/logo.svg" alt="TeraLace" className="w-10 h-10 rounded-xl" />
+                    <img src="/logo.svg" alt="TeraLace" className="w-10 h-10 object-contain drop-shadow-sm" />
                     <div>
                       <h3 className="font-bold text-sm text-foreground">TeraLace</h3>
                       <p className="text-[11px] text-muted-foreground">Fast, resilient multiplatform TeraBox downloader</p>

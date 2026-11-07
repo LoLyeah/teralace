@@ -91,6 +91,21 @@ pub fn normalize_terabox_url(input: &str) -> Option<(String, String)> {
     None
 }
 
+/// Extracts the `path` or `dir` parameter from a TeraBox subfolder share URL
+pub fn extract_url_path_param(input: &str) -> Option<String> {
+    if let Ok(parsed) = Url::parse(input) {
+        for (k, v) in parsed.query_pairs() {
+            if k == "path" || k == "dir" {
+                let decoded = v.trim();
+                if !decoded.is_empty() && decoded != "/" {
+                    return Some(decoded.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

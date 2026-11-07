@@ -198,6 +198,7 @@ impl DownloadManager {
 
         // None (no referer header, just like aria2) is an essential fallback for CDNs that reject foreign referers
         list.push(None);
+        list.push(Some("https://dm.terabox.com/".to_string()));
         list.push(Some("https://www.terabox.app/".to_string()));
         list.push(Some("https://www.terabox.com/".to_string()));
         list.push(Some("https://terabox.hnn.workers.dev/".to_string()));
@@ -205,17 +206,98 @@ impl DownloadManager {
         list
     }
 
+    /// Resolves target CDN URL across redirects while preserving sensitive headers like Cookie
+    async fn resolve_final_download_url(
+        url_str: &str,
+        headers: &[(String, String)],
+        referer: Option<&str>,
+    ) -> String {
+        let no_redirect_client = match Client::builder()
+            .timeout(Duration::from_secs(15))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return url_str.to_string(),
+        };
+
+        let mut current_url = url_str.to_string();
+        for _ in 0..5 {
+            let mut req = no_redirect_client
+                .head(&current_url)
+                .header(USER_AGENT, CHUNK_USER_AGENT);
+            if let Some(r) = referer {
+                req = req.header(REFERER, r);
+            }
+            for (k, v) in headers {
+                if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                    req = req.header(k, v);
+                }
+            }
+
+            let mut redirected = false;
+            if let Ok(resp) = req.send().await {
+                if resp.status().is_redirection() {
+                    if let Some(loc) = resp.headers().get("location") {
+                        if let Ok(loc_str) = loc.to_str() {
+                            if loc_str.starts_with("http") {
+                                log::info!("[Downloader] Resolved redirect (HEAD): {} -> {}", current_url, loc_str);
+                                current_url = loc_str.to_string();
+                                redirected = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !redirected {
+                // Try Range: bytes=0-0 GET if HEAD didn't redirect (some CDNs don't allow HEAD)
+                let mut get_req = no_redirect_client
+                    .get(&current_url)
+                    .header(RANGE, "bytes=0-0")
+                    .header(USER_AGENT, CHUNK_USER_AGENT);
+                if let Some(r) = referer {
+                    get_req = get_req.header(REFERER, r);
+                }
+                for (k, v) in headers {
+                    if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                        get_req = get_req.header(k, v);
+                    }
+                }
+                if let Ok(resp) = get_req.send().await {
+                    if resp.status().is_redirection() {
+                        if let Some(loc) = resp.headers().get("location") {
+                            if let Ok(loc_str) = loc.to_str() {
+                                if loc_str.starts_with("http") {
+                                    log::info!("[Downloader] Resolved redirect (GET): {} -> {}", current_url, loc_str);
+                                    current_url = loc_str.to_string();
+                                    redirected = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !redirected {
+                break;
+            }
+        }
+        current_url
+    }
+
     async fn run_download_task(client: Client, task: DownloadTask, max_conn: usize) {
         let candidate_referers = Self::get_candidate_referers(&task.url, &task.headers);
         let mut chosen_referer: Option<String> = candidate_referers.first().cloned().flatten();
+        let effective_url = Self::resolve_final_download_url(&task.url, &task.headers, chosen_referer.as_deref()).await;
         let mut total_size: u64 = 0;
         let mut supports_range = false;
         let mut probe_succeeded = false;
 
-        // Try probing with candidate referers using Range: bytes=0-0 GET first (most reliable across CDNs)
+        // Try probing with candidate referers using Range: bytes=0-0 GET first on effective_url
         for ref_opt in &candidate_referers {
             let mut req = client
-                .get(&task.url)
+                .get(&effective_url)
                 .header(RANGE, "bytes=0-0")
                 .header(USER_AGENT, CHUNK_USER_AGENT);
             if let Some(r) = ref_opt {
@@ -260,7 +342,7 @@ impl DownloadManager {
         if !probe_succeeded {
             for ref_opt in &candidate_referers {
                 let mut req = client
-                    .head(&task.url)
+                    .head(&effective_url)
                     .header(USER_AGENT, CHUNK_USER_AGENT);
                 if let Some(r) = ref_opt {
                     req = req.header(REFERER, r);
@@ -317,9 +399,9 @@ impl DownloadManager {
 
         // 2. Execute Download: Multi-chunk with parts merging or single stream
         let download_result = if supports_range && total_size > 2 * 1024 * 1024 {
-            Self::download_chunked_parts(&client, &task, total_size, max_conn, chosen_referer.as_deref()).await
+            Self::download_chunked_parts(&client, &task, &effective_url, total_size, max_conn, chosen_referer.as_deref()).await
         } else {
-            Self::download_single_stream(&client, &task, chosen_referer.as_deref()).await
+            Self::download_single_stream(&client, &task, &effective_url, chosen_referer.as_deref()).await
         };
 
         monitor_handle.abort();
@@ -344,6 +426,7 @@ impl DownloadManager {
     async fn download_chunked_parts(
         client: &Client,
         task: &DownloadTask,
+        effective_url: &str,
         total_size: u64,
         max_conn: usize,
         referer: Option<&str>,
@@ -366,10 +449,11 @@ impl DownloadManager {
 
             let client_c = client.clone();
             let task_c = task.clone();
+            let url_c = effective_url.to_string();
             let ref_c = referer.map(|s| s.to_string());
 
             handles.push(tokio::spawn(async move {
-                Self::download_part(client_c, task_c, part_path, start, end, ref_c.as_deref()).await
+                Self::download_part(client_c, task_c, url_c, part_path, start, end, ref_c.as_deref()).await
             }));
         }
 
@@ -423,6 +507,7 @@ impl DownloadManager {
     async fn download_part(
         client: Client,
         task: DownloadTask,
+        effective_url: String,
         part_path: PathBuf,
         start: u64,
         end: u64,
@@ -430,8 +515,8 @@ impl DownloadManager {
     ) -> Result<(), String> {
         let range_val = format!("bytes={}-{}", start, end);
         let mut req = client
-            .get(&task.url)
-            .header(RANGE, range_val)
+            .get(&effective_url)
+            .header(RANGE, range_val.clone())
             .header(USER_AGENT, CHUNK_USER_AGENT);
         if let Some(r) = referer {
             req = req.header(REFERER, r);
@@ -441,10 +526,48 @@ impl DownloadManager {
                 req = req.header(k, v);
             }
         }
-        let resp = req
+        let mut resp = req
             .send()
             .await
             .map_err(|e| format!("Range request failed: {}", e))?;
+
+        if resp.status().as_u16() == 403 {
+            let candidates = Self::get_candidate_referers(&effective_url, &task.headers);
+            let uas = [
+                CHUNK_USER_AGENT,
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+                "netdisk;1.0",
+            ];
+            let cookie_modes = [true, false];
+
+            'part_retry: for with_cookie in cookie_modes {
+                for ua in &uas {
+                    for ref_opt in &candidates {
+                        let mut retry_req = client
+                            .get(&effective_url)
+                            .header(RANGE, range_val.clone())
+                            .header(USER_AGENT, *ua);
+                        if let Some(ref r) = ref_opt {
+                            retry_req = retry_req.header(REFERER, r);
+                        }
+                        for (k, v) in &task.headers {
+                            if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                                if !with_cookie && k.eq_ignore_ascii_case("cookie") {
+                                    continue;
+                                }
+                                retry_req = retry_req.header(k, v);
+                            }
+                        }
+                        if let Ok(retry_resp) = retry_req.send().await {
+                            if retry_resp.status().is_success() {
+                                resp = retry_resp;
+                                break 'part_retry;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         if !resp.status().is_success() {
             return Err(format!("Server returned HTTP {}", resp.status()));
@@ -487,10 +610,11 @@ impl DownloadManager {
     async fn download_single_stream(
         client: &Client,
         task: &DownloadTask,
+        effective_url: &str,
         referer: Option<&str>,
     ) -> Result<(), String> {
         let mut req = client
-            .get(&task.url)
+            .get(effective_url)
             .header(USER_AGENT, CHUNK_USER_AGENT);
         if let Some(r) = referer {
             req = req.header(REFERER, r);
@@ -506,27 +630,38 @@ impl DownloadManager {
             .map_err(|e| format!("Request failed: {}", e))?;
 
         if resp.status().as_u16() == 403 {
-            // Dynamic fallback for anti-hotlinking
-            let candidates = Self::get_candidate_referers(&task.url, &task.headers);
-            for ref_opt in candidates {
-                if ref_opt.as_deref() == referer {
-                    continue;
-                }
-                let mut retry_req = client
-                    .get(&task.url)
-                    .header(USER_AGENT, CHUNK_USER_AGENT);
-                if let Some(ref r) = ref_opt {
-                    retry_req = retry_req.header(REFERER, r);
-                }
-                for (k, v) in &task.headers {
-                    if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
-                        retry_req = retry_req.header(k, v);
-                    }
-                }
-                if let Ok(retry_resp) = retry_req.send().await {
-                    if retry_resp.status().is_success() {
-                        resp = retry_resp;
-                        break;
+            // Dynamic fallback for anti-hotlinking, foreign cookie rejection, or mobile UA binding
+            let candidates = Self::get_candidate_referers(effective_url, &task.headers);
+            let uas = [
+                CHUNK_USER_AGENT,
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+                "netdisk;1.0",
+            ];
+            let cookie_modes = [true, false];
+
+            'stream_retry: for with_cookie in cookie_modes {
+                for ua in &uas {
+                    for ref_opt in &candidates {
+                        let mut retry_req = client
+                            .get(effective_url)
+                            .header(USER_AGENT, *ua);
+                        if let Some(ref r) = ref_opt {
+                            retry_req = retry_req.header(REFERER, r);
+                        }
+                        for (k, v) in &task.headers {
+                            if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                                if !with_cookie && k.eq_ignore_ascii_case("cookie") {
+                                    continue;
+                                }
+                                retry_req = retry_req.header(k, v);
+                            }
+                        }
+                        if let Ok(retry_resp) = retry_req.send().await {
+                            if retry_resp.status().is_success() {
+                                resp = retry_resp;
+                                break 'stream_retry;
+                            }
+                        }
                     }
                 }
             }

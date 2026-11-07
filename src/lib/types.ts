@@ -9,6 +9,7 @@ export interface TeraboxFileInfo {
   create_time?: number | null;
   thumb?: string | null;
   direct_link?: string | null;
+  path?: string | null;
 }
 
 export interface TeraboxInfo {
@@ -20,6 +21,7 @@ export interface TeraboxInfo {
   list: TeraboxFileInfo[];
   error_message?: string;
   resolved_by?: string;
+  surl?: string;
 }
 
 export interface DownloadParams {
@@ -30,6 +32,8 @@ export interface DownloadParams {
   fs_id: string;
   mode: number;
   direct_link?: string | null;
+  path?: string | null;
+  surl?: string | null;
 }
 
 export interface DownloadLink {
