@@ -113,21 +113,30 @@ async fn add_download(
     // Determine effective target directory with Android fallback
     let effective_dir = if let Some(d) = dir.filter(|s| !s.trim().is_empty()) {
         Some(d)
-    } else if !settings.download_dir.trim().is_empty() {
-        Some(settings.download_dir.clone())
     } else {
         #[cfg(target_os = "android")]
         {
-            use tauri::Manager;
-            let p = handle
-                .path()
-                .download_dir()
-                .unwrap_or_else(|_| PathBuf::from("/storage/emulated/0/Download"))
-                .join("TeraBox");
-            Some(p.to_string_lossy().to_string())
+            // On Android, verify settings path is an absolute Android path, otherwise fall back to public Download/TeraBox
+            if !settings.download_dir.trim().is_empty() && settings.download_dir.starts_with('/') {
+                Some(settings.download_dir.clone())
+            } else {
+                use tauri::Manager;
+                let p = handle
+                    .path()
+                    .download_dir()
+                    .unwrap_or_else(|_| PathBuf::from("/storage/emulated/0/Download"))
+                    .join("TeraBox");
+                Some(p.to_string_lossy().to_string())
+            }
         }
         #[cfg(not(target_os = "android"))]
-        None
+        {
+            if !settings.download_dir.trim().is_empty() {
+                Some(settings.download_dir.clone())
+            } else {
+                None
+            }
+        }
     };
 
     let options = DownloadOptions {

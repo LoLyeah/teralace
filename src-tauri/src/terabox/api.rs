@@ -588,7 +588,7 @@ impl TeraboxApi {
             let mut headers = HeaderMap::new();
             headers.insert(
                 USER_AGENT,
-                HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+                HeaderValue::from_static(DEFAULT_USER_AGENT),
             );
             headers.insert(REFERER, HeaderValue::from_str(&format!("https://{}/", host)).unwrap());
             headers.insert(ORIGIN, HeaderValue::from_str(&format!("https://{}", host)).unwrap());
@@ -888,7 +888,7 @@ impl TeraboxApi {
             let mut headers = HeaderMap::new();
             headers.insert(
                 USER_AGENT,
-                HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+                HeaderValue::from_static(DEFAULT_USER_AGENT),
             );
             headers.insert(REFERER, HeaderValue::from_str(referer).unwrap());
             headers.insert(ORIGIN, HeaderValue::from_str(&referer[..referer.len() - 1]).unwrap());
@@ -941,7 +941,68 @@ impl TeraboxApi {
         params: DownloadParams,
         user_cookie: Option<&str>,
     ) -> Result<DownloadLink, String> {
-        // If direct_link was already resolved during get_info, return it immediately!
+        let has_share_meta = params.shareid != 0
+            && params.uk != 0
+            && !params.sign.is_empty()
+            && params.timestamp != 0;
+
+        // 1. If share metadata is available, try direct sharedownload API first (high speed, avoids Cloudflare challenge)!
+        if has_share_meta {
+            log::info!("[get_download_link] Attempting direct sharedownload API for fs_id={}", params.fs_id);
+            if let Ok(dl) = self.fetch_direct_sharedownload(&params, user_cookie).await {
+                return Ok(DownloadLink {
+                    ok: true,
+                    download_link: Some(dl),
+                    error_message: None,
+                });
+            }
+
+            // 2. Otherwise, request authenticated download link from worker endpoints as resilient fallback
+            let worker_base = "https://terabox.hnn.workers.dev";
+            let endpoints = if params.mode == 1 {
+                ["/api/get-download", "/api/get-downloadp"]
+            } else {
+                ["/api/get-downloadp", "/api/get-download"]
+            };
+
+            let request_body = serde_json::json!({
+                "shareid": params.shareid,
+                "uk": params.uk,
+                "sign": params.sign,
+                "timestamp": params.timestamp,
+                "fs_id": params.fs_id,
+            });
+
+            for ep in &endpoints {
+                match self
+                    .client
+                    .post(format!("{}{}", worker_base, ep))
+                    .headers(Self::default_headers())
+                    .json(&request_body)
+                    .send()
+                    .await
+                {
+                    Ok(resp) => {
+                        if resp.status().is_success() {
+                            if let Ok(data) = resp.json::<WorkerDownloadResponse>().await {
+                                if data.ok && data.download_link.is_some() {
+                                    return Ok(DownloadLink {
+                                        ok: true,
+                                        download_link: data.download_link,
+                                        error_message: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("[get_download_link] Worker endpoint {} failed: {}", ep, e);
+                    }
+                }
+            }
+        }
+
+        // 3. Fallback: If direct_link was already resolved during get_info (or API pool without shareid), return it!
         if let Some(ref dl) = params.direct_link {
             if !dl.trim().is_empty() {
                 return Ok(DownloadLink {
@@ -952,61 +1013,7 @@ impl TeraboxApi {
             }
         }
 
-        // 1. Try direct TeraBox sharedownload API first (high speed, avoids Cloudflare challenge)!
-        if params.shareid != 0 && params.uk != 0 && !params.sign.is_empty() && params.timestamp != 0 {
-            log::info!("[get_download_link] Attempting direct sharedownload API for fs_id={}", params.fs_id);
-            if let Ok(dl) = self.fetch_direct_sharedownload(&params, user_cookie).await {
-                return Ok(DownloadLink {
-                    ok: true,
-                    download_link: Some(dl),
-                    error_message: None,
-                });
-            }
-        }
-
-        // 2. Otherwise, request download link from worker endpoints as fallback
-        let worker_base = "https://terabox.hnn.workers.dev";
-        let endpoint = if params.mode == 1 {
-            "/api/get-download"
-        } else {
-            "/api/get-downloadp"
-        };
-
-        let request_body = serde_json::json!({
-            "shareid": params.shareid,
-            "uk": params.uk,
-            "sign": params.sign,
-            "timestamp": params.timestamp,
-            "fs_id": params.fs_id,
-        });
-
-        let resp = self
-            .client
-            .post(format!("{}{}", worker_base, endpoint))
-            .headers(Self::default_headers())
-            .json(&request_body)
-            .send()
-            .await
-            .map_err(|e| format!("Download link request failed: {}", e))?;
-
-        if !resp.status().is_success() {
-            return Err(format!("Server returned HTTP {}", resp.status()));
-        }
-
-        let data: WorkerDownloadResponse = resp
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse download response: {}", e))?;
-
-        if data.ok && data.download_link.is_some() {
-            Ok(DownloadLink {
-                ok: true,
-                download_link: data.download_link,
-                error_message: None,
-            })
-        } else {
-            Err(data.message.unwrap_or_else(|| "Failed to resolve download link".to_string()))
-        }
+        Err("Failed to resolve download link from all providers".to_string())
     }
 
     pub fn detect_file_type(name: &str) -> String {

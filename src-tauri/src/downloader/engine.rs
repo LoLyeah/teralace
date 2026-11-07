@@ -40,6 +40,9 @@ impl DownloadManager {
     pub fn new() -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(60))
+            .user_agent(CHUNK_USER_AGENT)
+            .referer(true)
+            .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .expect("Failed to build downloader HTTP client");
 
@@ -155,47 +158,78 @@ impl DownloadManager {
         Ok(gid)
     }
 
-    async fn run_download_task(client: Client, task: DownloadTask, max_conn: usize) {
-        // 1. Probe remote file length & byte ranges support
-        let mut probe_builder = client
-            .head(&task.url)
-            .header(USER_AGENT, CHUNK_USER_AGENT)
-            .header(REFERER, "https://dm.terabox.com/");
-        for (k, v) in &task.headers {
-            probe_builder = probe_builder.header(k, v);
+    fn get_candidate_referers(url_str: &str, custom_headers: &[(String, String)]) -> Vec<Option<String>> {
+        for (k, v) in custom_headers {
+            if k.eq_ignore_ascii_case("referer") {
+                return vec![Some(v.clone()), None];
+            }
         }
-        let probe_res = probe_builder.send().await;
 
+        let mut list = Vec::new();
+
+        if let Ok(parsed) = url::Url::parse(url_str) {
+            if let Some(host) = parsed.host_str() {
+                let h = host.to_lowercase();
+                if h.ends_with("nephobox.com") {
+                    list.push(Some("https://www.nephobox.com/".to_string()));
+                    list.push(Some("https://nephobox.com/".to_string()));
+                } else if h.ends_with("terabox.app") {
+                    list.push(Some("https://www.terabox.app/".to_string()));
+                    list.push(Some("https://terabox.app/".to_string()));
+                } else if h.ends_with("terabox.com") {
+                    list.push(Some("https://www.terabox.com/".to_string()));
+                    list.push(Some("https://terabox.com/".to_string()));
+                } else if h.ends_with("1024tera.com") {
+                    list.push(Some("https://www.1024tera.com/".to_string()));
+                    list.push(Some("https://1024tera.com/".to_string()));
+                } else if h.ends_with("4funbox.com") {
+                    list.push(Some("https://www.4funbox.com/".to_string()));
+                } else if h.ends_with("mirrobox.com") {
+                    list.push(Some("https://www.mirrobox.com/".to_string()));
+                } else if h.ends_with("momerybox.com") {
+                    list.push(Some("https://www.momerybox.com/".to_string()));
+                } else if h.ends_with("tibabox.com") {
+                    list.push(Some("https://www.tibabox.com/".to_string()));
+                } else {
+                    list.push(Some(format!("https://{}/", host)));
+                }
+            }
+        }
+
+        // None (no referer header, just like aria2) is an essential fallback for CDNs that reject foreign referers
+        list.push(None);
+        list.push(Some("https://www.terabox.app/".to_string()));
+        list.push(Some("https://www.terabox.com/".to_string()));
+        list.push(Some("https://terabox.hnn.workers.dev/".to_string()));
+
+        list
+    }
+
+    async fn run_download_task(client: Client, task: DownloadTask, max_conn: usize) {
+        let candidate_referers = Self::get_candidate_referers(&task.url, &task.headers);
+        let mut chosen_referer: Option<String> = candidate_referers.first().cloned().flatten();
         let mut total_size: u64 = 0;
         let mut supports_range = false;
+        let mut probe_succeeded = false;
 
-        if let Ok(resp) = probe_res {
-            if resp.status().is_success() {
-                if let Some(cl) = resp.headers().get(CONTENT_LENGTH) {
-                    if let Ok(s) = cl.to_str() {
-                        total_size = s.parse::<u64>().unwrap_or(0);
-                    }
-                }
-                if let Some(ar) = resp.headers().get(ACCEPT_RANGES) {
-                    if let Ok(s) = ar.to_str() {
-                        supports_range = s.to_lowercase().contains("bytes");
-                    }
-                }
-            }
-        }
-
-        // Fallback probe via Range: bytes=0-0 GET
-        if total_size == 0 {
-            let mut get_probe = client
+        // Try probing with candidate referers using Range: bytes=0-0 GET first (most reliable across CDNs)
+        for ref_opt in &candidate_referers {
+            let mut req = client
                 .get(&task.url)
                 .header(RANGE, "bytes=0-0")
-                .header(USER_AGENT, CHUNK_USER_AGENT)
-                .header(REFERER, "https://dm.terabox.com/");
-            for (k, v) in &task.headers {
-                get_probe = get_probe.header(k, v);
+                .header(USER_AGENT, CHUNK_USER_AGENT);
+            if let Some(r) = ref_opt {
+                req = req.header(REFERER, r);
             }
-            if let Ok(resp) = get_probe.send().await {
-                if resp.status().as_u16() == 206 {
+            for (k, v) in &task.headers {
+                if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                    req = req.header(k, v);
+                }
+            }
+
+            if let Ok(resp) = req.send().await {
+                let status = resp.status();
+                if status.as_u16() == 206 {
                     supports_range = true;
                     if let Some(cr) = resp.headers().get("content-range") {
                         if let Ok(s) = cr.to_str() {
@@ -203,6 +237,56 @@ impl DownloadManager {
                                 total_size = total_str.parse::<u64>().unwrap_or(0);
                             }
                         }
+                    }
+                    chosen_referer = ref_opt.clone();
+                    probe_succeeded = true;
+                    log::info!("[Downloader] Probe succeeded (206) with referer: {:?}", ref_opt);
+                    break;
+                } else if status.is_success() {
+                    if let Some(cl) = resp.headers().get(CONTENT_LENGTH) {
+                        if let Ok(s) = cl.to_str() {
+                            total_size = s.parse::<u64>().unwrap_or(0);
+                        }
+                    }
+                    chosen_referer = ref_opt.clone();
+                    probe_succeeded = true;
+                    log::info!("[Downloader] Probe succeeded (200) with referer: {:?}", ref_opt);
+                    break;
+                }
+            }
+        }
+
+        // If GET range probe didn't succeed, try HEAD with candidate referers as fallback
+        if !probe_succeeded {
+            for ref_opt in &candidate_referers {
+                let mut req = client
+                    .head(&task.url)
+                    .header(USER_AGENT, CHUNK_USER_AGENT);
+                if let Some(r) = ref_opt {
+                    req = req.header(REFERER, r);
+                }
+                for (k, v) in &task.headers {
+                    if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                        req = req.header(k, v);
+                    }
+                }
+
+                if let Ok(resp) = req.send().await {
+                    if resp.status().is_success() {
+                        if let Some(cl) = resp.headers().get(CONTENT_LENGTH) {
+                            if let Ok(s) = cl.to_str() {
+                                total_size = s.parse::<u64>().unwrap_or(0);
+                            }
+                        }
+                        if let Some(ar) = resp.headers().get(ACCEPT_RANGES) {
+                            if let Ok(s) = ar.to_str() {
+                                supports_range = s.to_lowercase().contains("bytes");
+                            }
+                        }
+                        chosen_referer = ref_opt.clone();
+                        probe_succeeded = true;
+                        log::info!("[Downloader] HEAD probe succeeded with referer: {:?}", ref_opt);
+                        break;
                     }
                 }
             }
@@ -233,9 +317,9 @@ impl DownloadManager {
 
         // 2. Execute Download: Multi-chunk with parts merging or single stream
         let download_result = if supports_range && total_size > 2 * 1024 * 1024 {
-            Self::download_chunked_parts(&client, &task, total_size, max_conn).await
+            Self::download_chunked_parts(&client, &task, total_size, max_conn, chosen_referer.as_deref()).await
         } else {
-            Self::download_single_stream(&client, &task).await
+            Self::download_single_stream(&client, &task, chosen_referer.as_deref()).await
         };
 
         monitor_handle.abort();
@@ -262,6 +346,7 @@ impl DownloadManager {
         task: &DownloadTask,
         total_size: u64,
         max_conn: usize,
+        referer: Option<&str>,
     ) -> Result<(), String> {
         let chunk_count = max_conn.clamp(2, 16);
         let chunk_size = total_size / (chunk_count as u64);
@@ -281,9 +366,10 @@ impl DownloadManager {
 
             let client_c = client.clone();
             let task_c = task.clone();
+            let ref_c = referer.map(|s| s.to_string());
 
             handles.push(tokio::spawn(async move {
-                Self::download_part(client_c, task_c, part_path, start, end).await
+                Self::download_part(client_c, task_c, part_path, start, end, ref_c.as_deref()).await
             }));
         }
 
@@ -340,15 +426,20 @@ impl DownloadManager {
         part_path: PathBuf,
         start: u64,
         end: u64,
+        referer: Option<&str>,
     ) -> Result<(), String> {
         let range_val = format!("bytes={}-{}", start, end);
         let mut req = client
             .get(&task.url)
             .header(RANGE, range_val)
-            .header(USER_AGENT, CHUNK_USER_AGENT)
-            .header(REFERER, "https://dm.terabox.com/");
+            .header(USER_AGENT, CHUNK_USER_AGENT);
+        if let Some(r) = referer {
+            req = req.header(REFERER, r);
+        }
         for (k, v) in &task.headers {
-            req = req.header(k, v);
+            if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                req = req.header(k, v);
+            }
         }
         let resp = req
             .send()
@@ -393,18 +484,53 @@ impl DownloadManager {
     }
 
     /// Single stream download fallback
-    async fn download_single_stream(client: &Client, task: &DownloadTask) -> Result<(), String> {
+    async fn download_single_stream(
+        client: &Client,
+        task: &DownloadTask,
+        referer: Option<&str>,
+    ) -> Result<(), String> {
         let mut req = client
             .get(&task.url)
-            .header(USER_AGENT, CHUNK_USER_AGENT)
-            .header(REFERER, "https://dm.terabox.com/");
-        for (k, v) in &task.headers {
-            req = req.header(k, v);
+            .header(USER_AGENT, CHUNK_USER_AGENT);
+        if let Some(r) = referer {
+            req = req.header(REFERER, r);
         }
-        let resp = req
+        for (k, v) in &task.headers {
+            if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                req = req.header(k, v);
+            }
+        }
+        let mut resp = req
             .send()
             .await
             .map_err(|e| format!("Request failed: {}", e))?;
+
+        if resp.status().as_u16() == 403 {
+            // Dynamic fallback for anti-hotlinking
+            let candidates = Self::get_candidate_referers(&task.url, &task.headers);
+            for ref_opt in candidates {
+                if ref_opt.as_deref() == referer {
+                    continue;
+                }
+                let mut retry_req = client
+                    .get(&task.url)
+                    .header(USER_AGENT, CHUNK_USER_AGENT);
+                if let Some(ref r) = ref_opt {
+                    retry_req = retry_req.header(REFERER, r);
+                }
+                for (k, v) in &task.headers {
+                    if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                        retry_req = retry_req.header(k, v);
+                    }
+                }
+                if let Ok(retry_resp) = retry_req.send().await {
+                    if retry_resp.status().is_success() {
+                        resp = retry_resp;
+                        break;
+                    }
+                }
+            }
+        }
 
         if !resp.status().is_success() {
             return Err(format!("HTTP status {}", resp.status()));

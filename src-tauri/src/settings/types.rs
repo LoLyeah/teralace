@@ -46,6 +46,9 @@ fn default_api_endpoints() -> Vec<ApiEndpointConfig> {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            #[cfg(target_os = "android")]
+            download_dir: "/storage/emulated/0/Download/TeraBox".to_string(),
+            #[cfg(not(target_os = "android"))]
             download_dir: "downloads".to_string(),
             max_connections: 16,
             split_count: 16,
