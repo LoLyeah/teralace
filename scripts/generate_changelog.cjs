@@ -23,8 +23,8 @@ console.log(`[generate_changelog] Current tag: ${currentTag} (version: ${version
 // 2. Determine Previous Tag
 let prevTag = '';
 try {
-  // Try git describe first
-  prevTag = exec(`git describe --tags --abbrev=0 ${currentTag}^ 2>nul || git describe --tags --abbrev=0 2>nul`);
+  // Try git describe first using ~1 (cross-platform compatible without cmd caret escaping)
+  prevTag = exec(`git describe --tags --abbrev=0 "${currentTag}~1" 2>nul`);
 } catch (e) {
   prevTag = '';
 }
@@ -38,6 +38,11 @@ if (!prevTag) {
   } else if (allTags.length > 0 && allTags[0] !== currentTag) {
     prevTag = allTags[0];
   }
+}
+
+// v1.1.2 was never released; roll its commits into v1.2.0
+if (prevTag === 'v1.1.2' || prevTag === '1.1.2') {
+  prevTag = 'v1.1.1';
 }
 
 console.log(`[generate_changelog] Previous tag: ${prevTag || '(initial release / all history)'}`);
