@@ -43,44 +43,70 @@ if (fs.existsSync(manifestPath)) {
   console.log('Warning: AndroidManifest.xml not found at', manifestPath);
 }
 
-// 2. Android Adaptive Icon Background Color (#0a101d instead of default white #ffffff)
-const resValuesDir = path.resolve(__dirname, '../src-tauri/gen/android/app/src/main/res/values');
-if (fs.existsSync(resValuesDir)) {
-  const bgXmlPath = path.join(resValuesDir, 'ic_launcher_background.xml');
-  if (fs.existsSync(bgXmlPath)) {
-    let bgXml = fs.readFileSync(bgXmlPath, 'utf8');
-    bgXml = bgXml.replace(/#(?:FFFFFF|ffffff|[0-9a-fA-F]{6})/g, '#0a101d');
-    fs.writeFileSync(bgXmlPath, bgXml, 'utf8');
-    console.log('Updated ic_launcher_background.xml to match brand theme #0a101d');
-  } else {
-    // Create it if it doesn't exist
-    const newBgXml = `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#0a101d</color>\n</resources>\n`;
-    fs.writeFileSync(bgXmlPath, newBgXml, 'utf8');
-    console.log('Created ic_launcher_background.xml with brand theme #0a101d');
-  }
-
-  const colorsXmlPath = path.join(resValuesDir, 'colors.xml');
-  if (fs.existsSync(colorsXmlPath)) {
-    let colorsXml = fs.readFileSync(colorsXmlPath, 'utf8');
-    if (colorsXml.includes('ic_launcher_background')) {
-      colorsXml = colorsXml.replace(/(<color name="ic_launcher_background">)[^<]+(<\/color>)/, '$1#0a101d$2');
+// 2. Android Adaptive Icon Background Color & XML Definitions
+const resDir = path.resolve(__dirname, '../src-tauri/gen/android/app/src/main/res');
+if (fs.existsSync(resDir)) {
+  const valuesDir = path.join(resDir, 'values');
+  if (fs.existsSync(valuesDir)) {
+    // 2a. Update or create colors.xml with ic_launcher_background
+    const colorsXmlPath = path.join(valuesDir, 'colors.xml');
+    if (fs.existsSync(colorsXmlPath)) {
+      let colorsXml = fs.readFileSync(colorsXmlPath, 'utf8');
+      if (colorsXml.includes('ic_launcher_background')) {
+        colorsXml = colorsXml.replace(/(<color name="ic_launcher_background">)[^<]+(<\/color>)/g, '$1#0a101d$2');
+      } else {
+        colorsXml = colorsXml.replace('</resources>', '    <color name="ic_launcher_background">#0a101d</color>\n</resources>');
+      }
       fs.writeFileSync(colorsXmlPath, colorsXml, 'utf8');
       console.log('Updated colors.xml ic_launcher_background to #0a101d');
     }
+
+    // 2b. Update or create ic_launcher_background.xml in values/
+    const bgXmlPath = path.join(valuesDir, 'ic_launcher_background.xml');
+    if (fs.existsSync(bgXmlPath)) {
+      let bgXml = fs.readFileSync(bgXmlPath, 'utf8');
+      bgXml = bgXml.replace(/#(?:FFFFFF|ffffff|[0-9a-fA-F]{6})/g, '#0a101d');
+      fs.writeFileSync(bgXmlPath, bgXml, 'utf8');
+      console.log('Updated values/ic_launcher_background.xml to #0a101d');
+    } else {
+      const newBgXml = `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#0a101d</color>\n</resources>\n`;
+      fs.writeFileSync(bgXmlPath, newBgXml, 'utf8');
+      console.log('Created values/ic_launcher_background.xml with brand theme #0a101d');
+    }
   }
 
-  // Synchronize custom adaptive foreground icons if present in src-tauri/icons/android
+  // 2c. Check drawable/ic_launcher_background.xml
+  const drawableDir = path.join(resDir, 'drawable');
+  if (fs.existsSync(drawableDir)) {
+    const drawBgPath = path.join(drawableDir, 'ic_launcher_background.xml');
+    if (fs.existsSync(drawBgPath)) {
+      let drawBg = fs.readFileSync(drawBgPath, 'utf8');
+      drawBg = drawBg.replace(/#(?:FFFFFF|ffffff|[0-9a-fA-F]{6})/g, '#0a101d');
+      fs.writeFileSync(drawBgPath, drawBg, 'utf8');
+      console.log('Updated drawable/ic_launcher_background.xml to #0a101d');
+    }
+  }
+
+  // 3. Synchronize COMPLETE Android icon suite into app resource directory
+  // Copies ic_launcher.png (legacy squircle), ic_launcher_round.png (round), and ic_launcher_foreground.png (adaptive)
   const iconsAndroidDir = path.resolve(__dirname, '../src-tauri/icons/android');
-  const resMipmapDir = path.resolve(__dirname, '../src-tauri/gen/android/app/src/main/res');
   if (fs.existsSync(iconsAndroidDir)) {
     const densities = ['mipmap-hdpi', 'mipmap-mdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi'];
+    const iconTargets = ['ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png'];
+
     densities.forEach(d => {
-      const srcFg = path.join(iconsAndroidDir, d, 'ic_launcher_foreground.png');
-      const targetFg = path.join(resMipmapDir, d, 'ic_launcher_foreground.png');
-      if (fs.existsSync(srcFg) && fs.existsSync(path.dirname(targetFg))) {
-        fs.copyFileSync(srcFg, targetFg);
+      const targetDir = path.join(resDir, d);
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
       }
+      iconTargets.forEach(iconName => {
+        const srcPath = path.join(iconsAndroidDir, d, iconName);
+        const targetPath = path.join(targetDir, iconName);
+        if (fs.existsSync(srcPath)) {
+          fs.copyFileSync(srcPath, targetPath);
+        }
+      });
     });
-    console.log('Synchronized adaptive foreground mipmaps into Android app resource directory');
+    console.log('Synchronized complete Android icon suite (standard, round, foreground) into app resource directory');
   }
 }
