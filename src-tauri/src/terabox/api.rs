@@ -1206,6 +1206,50 @@ impl TeraboxApi {
         Err("No playable media stream found in playlist".to_string())
     }
 
+    /// Resolves direct link via indexsubtitle resolver
+    pub async fn fetch_indexsubtitle_direct(
+        &self,
+        share_url: &str,
+        fs_id: &str,
+    ) -> Result<String, String> {
+        let base = "https://tbx.indexsubtitle.cc";
+        let key = "116486c5e3a2ea45fa2c4cfc3fdc66caf3ae134598d3aedb";
+        let req_url = format!(
+            "{}/api/file?url={}&fs_id={}&direct=1&key={}",
+            base,
+            urlencoding::encode(share_url),
+            fs_id,
+            key
+        );
+
+        let no_redirect_client = match Client::builder()
+            .timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => return Err(e.to_string()),
+        };
+
+        let resp = no_redirect_client
+            .get(&req_url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if resp.status().is_redirection() {
+            if let Some(loc) = resp.headers().get("location") {
+                if let Ok(loc_str) = loc.to_str() {
+                    if loc_str.starts_with("http") {
+                        return Ok(loc_str.to_string());
+                    }
+                }
+            }
+        }
+
+        Err("No redirect location returned by indexsubtitle resolver".to_string())
+    }
+
     /// Resolves the final direct download link for a file
     pub async fn get_download_link(
         &self,
@@ -1230,73 +1274,81 @@ impl TeraboxApi {
             && !params.sign.is_empty()
             && params.timestamp != 0;
 
-        // 1. If share metadata is available, try direct sharedownload API first (high speed, avoids Cloudflare challenge)!
+        // 1. If share metadata is available, try direct sharedownload API first (high speed, official CDN)
         if has_share_meta {
             log::info!("[get_download_link] Attempting direct sharedownload API for fs_id={}", params.fs_id);
             if let Ok(dl) = self.fetch_direct_sharedownload(&params, user_cookie).await {
-                return Ok(DownloadLink {
-                    ok: true,
-                    download_link: Some(dl),
-                    error_message: None,
-                });
-            }
-
-            // Fallback: If sharedownload fails (e.g. anonymous or verification required), try share/streaming for video files
-            log::info!("[get_download_link] Trying share/streaming media stream fallback for fs_id={}", params.fs_id);
-            if let Ok(stream_url) = self.fetch_share_streaming(&params, user_cookie).await {
-                return Ok(DownloadLink {
-                    ok: true,
-                    download_link: Some(stream_url),
-                    error_message: None,
-                });
-            }
-
-            // 2. Otherwise, request authenticated download link from worker endpoints as resilient fallback
-            let worker_base = "https://terabox.hnn.workers.dev";
-            let endpoints = if params.mode == 1 {
-                ["/api/get-download", "/api/get-downloadp"]
-            } else {
-                ["/api/get-downloadp", "/api/get-download"]
-            };
-
-            let request_body = serde_json::json!({
-                "shareid": params.shareid,
-                "uk": params.uk,
-                "sign": params.sign,
-                "timestamp": params.timestamp,
-                "fs_id": params.fs_id,
-            });
-
-            for ep in &endpoints {
-                match self
+                let mut is_usable = true;
+                let mut probe_req = self
                     .client
-                    .post(format!("{}{}", worker_base, ep))
-                    .headers(Self::default_headers())
-                    .json(&request_body)
-                    .send()
-                    .await
-                {
-                    Ok(resp) => {
-                        if resp.status().is_success() {
-                            if let Ok(data) = resp.json::<WorkerDownloadResponse>().await {
-                                if data.ok && data.download_link.is_some() {
-                                    return Ok(DownloadLink {
-                                        ok: true,
-                                        download_link: data.download_link,
-                                        error_message: None,
-                                    });
-                                }
-                            }
+                    .get(&dl)
+                    .header(reqwest::header::RANGE, "bytes=0-0")
+                    .header(reqwest::header::USER_AGENT, DEFAULT_USER_AGENT)
+                    .timeout(std::time::Duration::from_millis(3000));
+
+                if let Some(cookie) = user_cookie {
+                    let cookie_str = cookie.trim().trim_matches('"').trim_matches('\'').trim();
+                    if !cookie_str.is_empty() {
+                        let formatted = if cookie_str.contains('=') {
+                            cookie_str.to_string()
+                        } else {
+                            format!("ndus={}", cookie_str)
+                        };
+                        if let Ok(c) = reqwest::header::HeaderValue::from_str(&formatted) {
+                            probe_req = probe_req.header(reqwest::header::COOKIE, c);
                         }
                     }
-                    Err(e) => {
-                        log::warn!("[get_download_link] Worker endpoint {} failed: {}", ep, e);
+                }
+
+                if let Ok(probe_resp) = probe_req.send().await {
+                    if probe_resp.status() == reqwest::StatusCode::FORBIDDEN {
+                        log::warn!("[get_download_link] Direct dlink rejected with 403 Forbidden by CDN (session expired or missing).");
+                        is_usable = false;
+                    }
+                }
+
+                if is_usable {
+                    return Ok(DownloadLink {
+                        ok: true,
+                        download_link: Some(dl),
+                        error_message: None,
+                    });
+                }
+            }
+        }
+
+        // 2. Try indexsubtitle direct resolver (works for many files without login session!)
+        if let Some(ref surl) = params.surl {
+            let share_url = format!("https://www.terabox.app/sharing/link?surl={}", surl.trim_start_matches('1'));
+            log::info!("[get_download_link] Trying indexsubtitle resolver for fs_id={}", params.fs_id);
+            if let Ok(loc) = self.fetch_indexsubtitle_direct(&share_url, &params.fs_id).await {
+                // Quick probe on loc: verify byte range access
+                let probe = self
+                    .client
+                    .get(&loc)
+                    .header(reqwest::header::RANGE, "bytes=0-100")
+                    .header(reqwest::header::USER_AGENT, DEFAULT_USER_AGENT)
+                    .timeout(std::time::Duration::from_millis(3000))
+                    .send()
+                    .await;
+
+                if let Ok(p_res) = probe {
+                    let st = p_res.status().as_u16();
+                    if st == 200 || st == 206 {
+                        log::info!("[get_download_link] Succeeded with indexsubtitle resolver (HTTP {})", st);
+                        return Ok(DownloadLink {
+                            ok: true,
+                            download_link: Some(loc),
+                            error_message: None,
+                        });
+                    } else {
+                        log::warn!("[get_download_link] Indexsubtitle link probe failed with HTTP {}", st);
                     }
                 }
             }
         }
 
-        // 3. Fallback: If direct_link was already resolved during get_info (or API pool without shareid), return it!
+        // 3. Fallback: If direct_link was already resolved during get_info (or API pool), probe & return it
         if let Some(ref dl) = params.direct_link {
             if !dl.trim().is_empty() {
                 return Ok(DownloadLink {
@@ -1307,7 +1359,15 @@ impl TeraboxApi {
             }
         }
 
-        Err("Failed to resolve download link from all providers".to_string())
+        // 4. If all resolvers failed, return a clear, helpful error message
+        let cookie_is_set = user_cookie.map(|c| !c.trim().is_empty()).unwrap_or(false);
+        let error_msg = if cookie_is_set {
+            "TeraBox session expired (error 31045: user not exists). Please re-login via Settings -> TeraBox Cookie -> 'Sign In to TeraBox' to download full original files.".to_string()
+        } else {
+            "TeraBox requires an active login session to download this original file (HTTP 403 Forbidden). Please sign in via Settings -> TeraBox Cookie -> 'Sign In to TeraBox' to download.".to_string()
+        };
+
+        Err(error_msg)
     }
 
     pub fn detect_file_type(name: &str) -> String {
