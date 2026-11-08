@@ -63,3 +63,10 @@ async-trait = "0.1"
 uuid = { version = "1", features = ["v4"] }
 
 dirs = "5"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

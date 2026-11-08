@@ -29,6 +29,7 @@ Pre-compiled, release-ready packages for all platforms are available on the **[G
 | **Windows** | Portable Archive | `.zip` | x86_64 | [**Portable `.zip`**](https://github.com/LoLyeah/teralace/releases/latest) |
 | **macOS** | Universal Bundle | `.dmg` | Apple Silicon (`M1–M4`) & Intel (`x64`) | [**Universal `.dmg`**](https://github.com/LoLyeah/teralace/releases/latest) |
 | **Linux** | Portable AppImage | `.AppImage` | x86_64 (`amd64`) | [**Portable `.AppImage`**](https://github.com/LoLyeah/teralace/releases/latest) |
+| **Linux** | Debian Package | `.deb` | x86_64 (`amd64`) | [**Native `.deb`**](https://github.com/LoLyeah/teralace/releases/latest) |
 | **Android** | Signed Package | `.apk` | Universal (`ARM64` / `x86_64`) | [**Universal `.apk`**](https://github.com/LoLyeah/teralace/releases/latest) |
 
 ---
