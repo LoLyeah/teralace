@@ -8,17 +8,18 @@ use logging::LogEntry;
 use settings::types::AppSettings;
 use std::path::PathBuf;
 use std::sync::LazyLock;
-use tauri::{Emitter, Manager, Url, WebviewUrl};
+use tauri::Emitter;
 use tauri_plugin_store::StoreExt;
 use terabox::{
-    ApiEndpointConfig, DownloadLink, DownloadParams, EndpointHealthInfo, TeraboxApi, TeraboxInfo,
+    ApiEndpointConfig, DownloadLink, DownloadParams, EndpointHealthInfo, TeraboxApi,
+    TeraboxFileInfo, TeraboxInfo,
 };
 
 #[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    WebviewWindowBuilder,
+    Manager, Url, WebviewUrl, WebviewWindowBuilder,
 };
 
 static DOWNLOAD_MANAGER: LazyLock<DownloadManager> = LazyLock::new(DownloadManager::new);

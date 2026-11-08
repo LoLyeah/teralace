@@ -85,6 +85,7 @@ impl DownloadManager {
         let gid = uuid::Uuid::new_v4().to_string();
         let opts = options.unwrap_or_default();
 
+        #[allow(unused_mut)]
         let mut target_dir = if let Some(dir_str) = opts.dir {
             PathBuf::from(dir_str)
         } else {
@@ -299,6 +300,7 @@ impl DownloadManager {
         let effective_url = Self::resolve_final_download_url(&task.url, &task.headers, chosen_referer.as_deref()).await;
         let mut total_size: u64 = 0;
         let mut supports_range = false;
+        #[allow(unused_assignments)]
         let mut probe_succeeded = false;
 
         // Try probing with candidate referers using Range: bytes=0-0 GET first on effective_url

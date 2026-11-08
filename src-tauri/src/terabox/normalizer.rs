@@ -91,6 +91,16 @@ pub fn normalize_terabox_url(input: &str) -> Option<(String, String)> {
     None
 }
 
+/// Extracts the surl identifier from any TeraBox share URL or raw string
+pub fn extract_surl(input: &str) -> String {
+    let trimmed = input.trim();
+    if let Some((_, surl)) = normalize_terabox_url(trimmed) {
+        surl
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Extracts the `path` or `dir` parameter from a TeraBox subfolder share URL
 pub fn extract_url_path_param(input: &str) -> Option<String> {
     if let Ok(parsed) = Url::parse(input) {

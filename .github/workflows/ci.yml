@@ -73,7 +73,7 @@ jobs:
       - name: Verify Check Status
         shell: bash
         run: |
-          if grep -q "error:" cargo_check.log; then
+          if grep -iE "error(\[|:)" cargo_check.log; then
             echo "Cargo check failed with errors!"
             exit 1
           fi

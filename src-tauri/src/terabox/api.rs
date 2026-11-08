@@ -199,6 +199,7 @@ impl TeraboxApi {
             list,
             error_message: None,
             resolved_by: Some(endpoint.name.clone()),
+            surl: None,
         })
     }
 
@@ -1036,6 +1037,7 @@ impl TeraboxApi {
                     create_time: item.create_time.and_then(|t| t.parse().ok()),
                     thumb: None,
                     direct_link: None,
+                    path: None,
                 }
             })
             .collect();
@@ -1049,6 +1051,7 @@ impl TeraboxApi {
             list: files,
             error_message: None,
             resolved_by: Some("Worker Fallback".to_string()),
+            surl: Some(surl.to_string()),
         })
     }
 
