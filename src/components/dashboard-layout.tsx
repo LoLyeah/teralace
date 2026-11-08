@@ -429,8 +429,45 @@ export function DashboardLayout() {
     }
   }, [teraboxInfo, currentPath, folderCache, url]);
 
+  const [hasDismissedGuestPrompt, setHasDismissedGuestPrompt] = useState(false);
+
+  const checkSignInBeforeDownload = useCallback(async (): Promise<boolean> => {
+    if (teraboxCookie && teraboxCookie.trim()) {
+      return true;
+    }
+    if (hasDismissedGuestPrompt) {
+      return true;
+    }
+
+    try {
+      const proceed = await confirm(
+        "You are downloading without signing in to TeraBox.\n\n• TeraBox restricts anonymous downloads for large files (>20MB) or may return HTTP 403 Forbidden.\n• Signing in unlocks full original file sizes and maximum download speed.\n\nWould you like to sign in now, or continue as guest?",
+        {
+          title: "Sign-In Recommended",
+          kind: "info",
+          okLabel: "Sign In Now",
+          cancelLabel: "Continue as Guest",
+        }
+      );
+
+      if (proceed) {
+        setSettingsTab("cookie");
+        setShowSettings(true);
+        return false;
+      } else {
+        setHasDismissedGuestPrompt(true);
+        return true;
+      }
+    } catch {
+      return true;
+    }
+  }, [teraboxCookie, hasDismissedGuestPrompt]);
+
   const handleDownloadFolder = useCallback(async (folder: TeraboxFileInfo) => {
     if (!teraboxInfo) return;
+    const canProceed = await checkSignInBeforeDownload();
+    if (!canProceed) return;
+
     const targetPath = folder.path || (currentPath ? `${currentPath}/${folder.name}` : `/${folder.name}`);
     setIsQueuingFolder(folder.name);
 
@@ -457,7 +494,7 @@ export function DashboardLayout() {
     } finally {
       setIsQueuingFolder(null);
     }
-  }, [teraboxInfo, currentPath, url, downloadMode, downloadDir, addToQueue, startQueue]);
+  }, [teraboxInfo, currentPath, url, downloadMode, downloadDir, addToQueue, startQueue, checkSignInBeforeDownload]);
 
   const handleSelectFolder = useCallback(async (folder: TeraboxFileInfo) => {
     if (!teraboxInfo) return;
@@ -478,8 +515,11 @@ export function DashboardLayout() {
     }
   }, [teraboxInfo, currentPath, url]);
 
-  const handleDownloadFile = useCallback((file: TeraboxFileInfo) => {
+  const handleDownloadFile = useCallback(async (file: TeraboxFileInfo) => {
     if (!teraboxInfo || file.is_dir) return;
+    const canProceed = await checkSignInBeforeDownload();
+    if (!canProceed) return;
+
     addToQueue([file], {
       shareid: teraboxInfo.shareid,
       uk: teraboxInfo.uk,
@@ -490,10 +530,13 @@ export function DashboardLayout() {
     }, downloadDir || undefined);
     startQueue();
     setMobileTab('queue');
-  }, [teraboxInfo, downloadMode, downloadDir, addToQueue, startQueue]);
+  }, [teraboxInfo, downloadMode, downloadDir, addToQueue, startQueue, checkSignInBeforeDownload]);
 
-  const handleDownloadSelected = () => {
+  const handleDownloadSelected = async () => {
     if (!teraboxInfo) return;
+    const canProceed = await checkSignInBeforeDownload();
+    if (!canProceed) return;
+
     const allKnown = Object.values(folderCache).flat();
     const source = allKnown.length > 0 ? allKnown : teraboxInfo.list;
     const filesToDownload = source.filter((f, idx, arr) => 
@@ -817,7 +860,25 @@ export function DashboardLayout() {
             </CardContent>
 
             {/* Sticky Action Footer */}
-            <div className="p-3 pb-[calc(0.75rem+var(--sab))] md:pb-3 border-t border-border/60 bg-muted/20 shrink-0">
+            <div className="p-3 pb-[calc(0.75rem+var(--sab))] md:pb-3 border-t border-border/60 bg-muted/20 shrink-0 space-y-2">
+              {!teraboxCookie && teraboxInfo && (
+                <div className="flex items-center justify-between text-[11px] text-amber-500/95 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 rounded-lg animate-in fade-in duration-150">
+                  <div className="flex items-center gap-1.5 truncate">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <span className="truncate">Guest mode: files &gt;20MB require TeraBox sign-in</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettingsTab('cookie');
+                      setShowSettings(true);
+                    }}
+                    className="shrink-0 font-semibold text-primary hover:underline ml-2"
+                  >
+                    Sign In
+                  </button>
+                </div>
+              )}
               <Button 
                 className="w-full h-10 sm:h-9 font-medium shadow-sm transition-all" 
                 onClick={handleDownloadSelected}

@@ -20,6 +20,7 @@ powershell.cmd
 dist-portable
 dist-apk
 RELEASE_NOTES.md
+downloaded_videos/
 
 # Editor directories and files
 .vscode/*
