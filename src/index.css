@@ -32,13 +32,35 @@
     --input: 214.3 31.8% 90%;
     --ring: 201 94% 44%;
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
 
     /* Adaptive safe area insets (Mobile / Android / iOS) */
     --sat: env(safe-area-inset-top, 0px);
     --sab: env(safe-area-inset-bottom, 0px);
     --sal: env(safe-area-inset-left, 0px);
     --sar: env(safe-area-inset-right, 0px);
+  }
+
+  /* Material You (Material 3 Dynamic Tonal & Pill Geometry) */
+  .material-you {
+    --radius: 1rem;
+    --background: 215 32% 96.5%;
+    --card: 215 40% 99%;
+    --popover: 215 40% 99%;
+    --secondary: 215 30% 92%;
+    --muted: 215 30% 92%;
+    --accent: 215 35% 89%;
+    --border: 215 25% 86%;
+  }
+
+  .material-you.dark {
+    --radius: 1rem;
+    --card: 222 34% 12%;
+    --popover: 222 34% 12%;
+    --secondary: 222 28% 18%;
+    --muted: 222 26% 16%;
+    --accent: 222 32% 20%;
+    --border: 222 24% 22%;
   }
 
   .dark {

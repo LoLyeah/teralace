@@ -24,22 +24,28 @@ type ThemeProviderProps = {
   children: React.ReactNode
   defaultTheme?: Theme
   defaultPalette?: ThemePalette
+  defaultMaterialYou?: boolean
   storageKey?: string
   paletteStorageKey?: string
+  materialYouStorageKey?: string
 }
 
 type ThemeProviderState = {
   theme: Theme
   palette: ThemePalette
+  materialYou: boolean
   setTheme: (theme: Theme) => void
   setPalette: (palette: ThemePalette) => void
+  setMaterialYou: (enabled: boolean) => void
 }
 
 const initialState: ThemeProviderState = {
   theme: "system",
   palette: "glacier",
+  materialYou: true,
   setTheme: () => null,
   setPalette: () => null,
+  setMaterialYou: () => null,
 }
 
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
@@ -48,8 +54,10 @@ export function ThemeProvider({
   children,
   defaultTheme = "system",
   defaultPalette = "glacier",
+  defaultMaterialYou = true,
   storageKey = "vite-ui-theme",
   paletteStorageKey = "vite-ui-palette",
+  materialYouStorageKey = "vite-ui-material-you",
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(
@@ -58,6 +66,13 @@ export function ThemeProvider({
   const [palette, setPalette] = useState<ThemePalette>(
     () => (localStorage.getItem(paletteStorageKey) as ThemePalette) || defaultPalette
   )
+  const [materialYou, setMaterialYouState] = useState<boolean>(() => {
+    const saved = localStorage.getItem(materialYouStorageKey)
+    if (saved !== null) {
+      return saved === "true"
+    }
+    return defaultMaterialYou
+  })
 
   useEffect(() => {
     const root = window.document.documentElement
@@ -87,9 +102,19 @@ export function ThemeProvider({
     root.classList.add(`palette-${palette}`)
   }, [palette])
 
+  useEffect(() => {
+    const root = window.document.documentElement
+    if (materialYou) {
+      root.classList.add("material-you")
+    } else {
+      root.classList.remove("material-you")
+    }
+  }, [materialYou])
+
   const value = {
     theme,
     palette,
+    materialYou,
     setTheme: (newTheme: Theme) => {
       localStorage.setItem(storageKey, newTheme)
       setTheme(newTheme)
@@ -97,6 +122,10 @@ export function ThemeProvider({
     setPalette: (newPalette: ThemePalette) => {
       localStorage.setItem(paletteStorageKey, newPalette)
       setPalette(newPalette)
+    },
+    setMaterialYou: (enabled: boolean) => {
+      localStorage.setItem(materialYouStorageKey, String(enabled))
+      setMaterialYouState(enabled)
     },
   }
 

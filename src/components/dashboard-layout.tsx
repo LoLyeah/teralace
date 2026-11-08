@@ -49,7 +49,7 @@ export function DashboardLayout() {
   const [downloadMode, setDownloadMode] = useState(2);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'api' | 'cookie' | 'logs' | 'about'>('general');
-  const { palette, setPalette } = useTheme();
+  const { palette, setPalette, materialYou, setMaterialYou } = useTheme();
   const [mobileTab, setMobileTab] = useState<'source' | 'queue'>('source');
   const [maxOverallLimit, setMaxOverallLimit] = useState(0);
   const [maxDownloadLimit, setMaxDownloadLimit] = useState(0);
@@ -1240,32 +1240,74 @@ export function DashboardLayout() {
                     </select>
                   </div>
 
-                  {/* Theme Accent Color Palette */}
-                  <div className="space-y-2 pt-2 border-t border-border/40">
-                    <span className="font-medium text-foreground block text-xs">Accent Color Palette (Android 17)</span>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {THEME_PALETTES.map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => setPalette(p.id)}
-                          className={cn(
-                            "flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all hover:bg-accent/40",
-                            palette === p.id 
-                              ? "border-primary bg-primary/10 shadow-sm" 
-                              : "border-border/60"
-                          )}
-                        >
-                          <span 
-                            className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-sm shrink-0" 
-                            style={{ backgroundColor: p.color }}
-                          />
-                          <div className="flex flex-col min-w-0">
-                            <span className="font-semibold text-[11px] text-foreground truncate">{p.name}</span>
-                            <span className="text-[9px] text-muted-foreground truncate">{p.label}</span>
+                  {/* Material You & Theme Theming */}
+                  <div className="space-y-3 pt-2 border-t border-border/40">
+                    <div className="flex items-center justify-between p-3 rounded-xl border border-border/70 bg-card/60">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                          <Sparkles className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                            Material You (Android 17)
+                            {materialYou && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">
+                                Active
+                              </span>
+                            )}
                           </div>
-                        </button>
-                      ))}
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            {materialYou 
+                              ? "Using Material 3 tonal surface hierarchy and organic pill geometry." 
+                              : "Using classic crisp high-contrast mode with standard borders."}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={materialYou}
+                        onClick={() => setMaterialYou(!materialYou)}
+                        className={cn(
+                          "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                          materialYou ? "bg-primary" : "bg-muted-foreground/30"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out",
+                            materialYou ? "translate-x-5" : "translate-x-0"
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <span className="font-medium text-foreground block text-xs">Accent Color Palette</span>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {THEME_PALETTES.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setPalette(p.id)}
+                            className={cn(
+                              "flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all hover:bg-accent/40",
+                              palette === p.id 
+                                ? "border-primary bg-primary/10 shadow-sm" 
+                                : "border-border/60"
+                            )}
+                          >
+                            <span 
+                              className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-sm shrink-0" 
+                              style={{ backgroundColor: p.color }}
+                            />
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-semibold text-[11px] text-foreground truncate">{p.name}</span>
+                              <span className="text-[9px] text-muted-foreground truncate">{p.label}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
