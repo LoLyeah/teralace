@@ -41,7 +41,8 @@ Pre-compiled, release-ready packages for all platforms are available on the **[G
 * **Bandwidth Throttling:** Built-in speed limiters with customizable presets (512 KB/s, 1 MB/s, 2 MB/s, 5 MB/s, 10 MB/s, or Unlimited).
 
 ### 🛡️ Multi-Tier Resilient Resolution
-* **Dynamic API Pool Load Balancer:** Round-robin balancing across multiple endpoints with automatic failover and a 120s circuit breaker for rate-limited (429) nodes.
+* **Dynamic API Pool Load Balancer:** Round-robin balancing across multiple endpoints with automatic failover, active reachability probing, and a 120s circuit breaker for failing or rate-limited nodes.
+* **Self-Hostable Cloudflare Worker:** Free, private serverless reverse-proxy script included in [`cloudflare-worker/`](./cloudflare-worker/README.md) for 100% resolver uptime.
 * **WAP Direct Scraper Fallback:** High-speed mobile WAP scraper generating direct pre-signed download tokens when API pools are unavailable.
 * **Deep Pagination:** Full pagination support for large folders and shares containing more than 20, 50, or 100+ files.
 * **Recursive Folder Expansion:** Automatic recursive traversal into shared subdirectories.
@@ -49,8 +50,10 @@ Pre-compiled, release-ready packages for all platforms are available on the **[G
 
 ### 📱 Modern Multiplatform Experience
 * **Desktop & Mobile Optimized:** Responsive layout with desktop controls (folder opener, window controls, background downloads) and dedicated touch-friendly tabs on Android.
+* **One-Tap In-App Login:** Native sign-in popup that auto-captures and saves your TeraBox `ndus` session cookie without requiring browser DevTools.
+* **In-App Diagnostic Log Viewer:** Integrated real-time ring buffer logger in Settings to view errors, trace requests, and diagnose network issues directly inside the app.
 * **In-App Media Streaming:** Instant video and audio player preview before or during download.
-* **Android Adaptive Icons:** Engineered with safe-zone compliance, pure vector glyphs, and seamless theme-matched dark launcher integration.
+* **Android 17 Material You Vector Branding & Tonal Themes:** Pure geometric circle & piercing arrow branding engineered with safe-zone compliance, seamless dynamic monochrome theming, and 6 selectable Material 3 tonal color palettes (Glacier Sky, Warm Sand, Mineral Sage, Dusty Lavender, Terracotta Clay, and Frosted Pearl).
 * **Private Downloads & Speed Unlock:** Personal `ndus` session cookie support to bypass guest bandwidth limits and fetch private shared folders.
 
 ---
@@ -97,14 +100,15 @@ npm run tauri android build --apk --target aarch64 --ci
 ## ⚙️ Configuration & Tips
 
 ### 1. Personal Session (`ndus` Cookie)
-To download private links, avoid CAPTCHAs, or unlock maximum download speeds:
-1. Open [TeraBox Web](https://www.terabox.app/) in your browser and log in.
-2. Open Developer Tools (`F12` or `Ctrl + Shift + I`) &rarr; **Application** &rarr; **Cookies**.
-3. Copy the value of the `ndus` cookie.
-4. In TeraLace, navigate to **Settings** &rarr; **TeraBox Cookie**, paste your cookie, and click **Save**.
+TeraBox blocks anonymous downloads for shared folders or large files (`31045: user not exists`). To enable high-speed downloads:
+* **Option A (One-Tap In-App):** Open **Settings** &rarr; **TeraBox Cookie** &rarr; click **Sign In to TeraBox**. Log in once and TeraLace will automatically capture and save your session cookie!
+* **Option B (Manual):** Open [TeraBox Web](https://www.terabox.app/), log in, copy your `ndus` cookie from DevTools or using our mobile bookmarklet, and paste it into **Settings** &rarr; **TeraBox Cookie**.
 
-### 2. Custom API Pool
-You can add or prioritize custom endpoints in **Settings** &rarr; **API Pool** following the [abdul97233](https://github.com/abdul97233/TeraBox-Downloader-Bot) schema. The active balancer tracks response health and status codes in real time.
+### 2. Custom API Pool & Self-Hosted Cloudflare Worker
+You can add or prioritize custom endpoints in **Settings** &rarr; **API Pool & Balancer**:
+* Deploy your own free Cloudflare Worker using [`cloudflare-worker/worker.js`](./cloudflare-worker/README.md).
+* Add your worker URL (e.g. `https://my-worker.workers.dev/`) as a custom endpoint.
+* TeraLace continuously monitors endpoint reachability and displays live online/offline latency badges.
 
 ---
 

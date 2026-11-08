@@ -287,6 +287,13 @@ impl DownloadManager {
     }
 
     async fn run_download_task(client: Client, task: DownloadTask, max_conn: usize) {
+        let has_cookie = task.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("cookie"));
+        log::info!(
+            "[Downloader] Starting task for '{}' (has_cookie: {}, url: {})",
+            task.filename,
+            has_cookie,
+            task.url
+        );
         let candidate_referers = Self::get_candidate_referers(&task.url, &task.headers);
         let mut chosen_referer: Option<String> = candidate_referers.first().cloned().flatten();
         let effective_url = Self::resolve_final_download_url(&task.url, &task.headers, chosen_referer.as_deref()).await;
@@ -570,7 +577,18 @@ impl DownloadManager {
         }
 
         if !resp.status().is_success() {
-            return Err(format!("Server returned HTTP {}", resp.status()));
+            let status = resp.status();
+            let body_preview = resp.text().await.unwrap_or_default();
+            log::warn!("[downloader] Part request failed with HTTP {}: {}", status, body_preview);
+            if body_preview.contains("31045") || body_preview.contains("user not exists") {
+                return Err("HTTP 403 Forbidden: user not exists (TeraBox session cookie 'ndus' required)".to_string());
+            } else if body_preview.contains("400310") || body_preview.contains("need verify_v2") {
+                return Err("HTTP 403 Forbidden: verification required (TeraBox session cookie 'ndus' required)".to_string());
+            } else if status.as_u16() == 403 {
+                return Err("HTTP 403 Forbidden: Access denied by TeraBox CDN".to_string());
+            } else {
+                return Err(format!("Server returned HTTP {}", status));
+            }
         }
 
         let mut file = OpenOptions::new()
@@ -668,7 +686,18 @@ impl DownloadManager {
         }
 
         if !resp.status().is_success() {
-            return Err(format!("HTTP status {}", resp.status()));
+            let status = resp.status();
+            let body_preview = resp.text().await.unwrap_or_default();
+            log::warn!("[downloader] Stream request failed with HTTP {}: {}", status, body_preview);
+            if body_preview.contains("31045") || body_preview.contains("user not exists") {
+                return Err("HTTP 403 Forbidden: user not exists (TeraBox session cookie 'ndus' required)".to_string());
+            } else if body_preview.contains("400310") || body_preview.contains("need verify_v2") {
+                return Err("HTTP 403 Forbidden: verification required (TeraBox session cookie 'ndus' required)".to_string());
+            } else if status.as_u16() == 403 {
+                return Err("HTTP 403 Forbidden: Access denied by TeraBox CDN".to_string());
+            } else {
+                return Err(format!("HTTP status {}", status));
+            }
         }
 
         let mut file = OpenOptions::new()

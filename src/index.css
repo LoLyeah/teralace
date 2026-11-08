@@ -52,9 +52,9 @@
     --popover: 222.2 47.4% 10.5%;
     --popover-foreground: 210 40% 98%;
 
-    /* Vivid cyan/sky #0284c7 matching logo gradient */
-    --primary: 199 89% 48%;
-    --primary-foreground: 210 40% 98%;
+    /* Default primary (Glacier Sky) */
+    --primary: 199 95% 74%;
+    --primary-foreground: 222.2 47.4% 7.8%;
 
     --secondary: 217.2 32.6% 14%;
     --secondary-foreground: 210 40% 98%;
@@ -70,7 +70,58 @@
 
     --border: 217.2 32.6% 16%;
     --input: 217.2 32.6% 16%;
-    --ring: 199 89% 48%;
+    --ring: 199 95% 74%;
+  }
+
+  /* ==========================================================================
+     Android 17 Material 3 Tonal Color Palettes
+     ========================================================================== */
+
+  /* 1. Glacier Sky (Default Brand Palette) */
+  .palette-glacier {
+    --primary: 199 95% 74%;
+    --primary-foreground: 222.2 47.4% 7.8%;
+    --ring: 199 95% 74%;
+  }
+
+  /* 2. Warm Sand */
+  .palette-sand {
+    --primary: 37 68% 68%;
+    --primary-foreground: 222.2 47.4% 7.8%;
+    --ring: 37 68% 68%;
+  }
+
+  /* 3. Mineral Sage */
+  .palette-sage {
+    --primary: 156 47% 68%;
+    --primary-foreground: 222.2 47.4% 7.8%;
+    --ring: 156 47% 68%;
+  }
+
+  /* 4. Dusty Lavender */
+  .palette-lavender {
+    --primary: 231 93% 82%;
+    --primary-foreground: 222.2 47.4% 7.8%;
+    --ring: 231 93% 82%;
+  }
+
+  /* 5. Terracotta Clay */
+  .palette-terracotta {
+    --primary: 16 64% 68%;
+    --primary-foreground: 222.2 47.4% 7.8%;
+    --ring: 16 64% 68%;
+  }
+
+  /* 6. Frosted Pearl */
+  .palette-pearl {
+    --primary: 214 32% 40%;
+    --primary-foreground: 210 40% 98%;
+    --ring: 214 32% 40%;
+  }
+  .dark.palette-pearl, .dark .palette-pearl {
+    --primary: 214 32% 91%;
+    --primary-foreground: 222.2 47.4% 7.8%;
+    --ring: 214 32% 91%;
   }
 }
 

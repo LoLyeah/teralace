@@ -1,11 +1,14 @@
 mod downloader;
+pub mod logging;
 mod settings;
 mod terabox;
 
 use downloader::{DownloadInfo, DownloadManager, DownloadOptions};
+use logging::LogEntry;
 use settings::types::AppSettings;
 use std::path::PathBuf;
 use std::sync::LazyLock;
+use tauri::{Emitter, Manager, Url, WebviewUrl};
 use tauri_plugin_store::StoreExt;
 use terabox::{
     ApiEndpointConfig, DownloadLink, DownloadParams, EndpointHealthInfo, TeraboxApi, TeraboxInfo,
@@ -15,7 +18,7 @@ use terabox::{
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    WebviewWindowBuilder,
 };
 
 static DOWNLOAD_MANAGER: LazyLock<DownloadManager> = LazyLock::new(DownloadManager::new);
@@ -154,6 +157,97 @@ fn extract_shorturl(url: String) -> Option<String> {
 #[tauri::command]
 async fn get_endpoint_stats() -> Result<Vec<EndpointHealthInfo>, String> {
     Ok(TERABOX_API.balancer.get_health_stats().await)
+}
+
+#[tauri::command]
+async fn ping_endpoint_health(handle: tauri::AppHandle) -> Result<Vec<EndpointHealthInfo>, String> {
+    let settings = get_settings(&handle);
+    TERABOX_API.balancer.update_endpoints(&settings.api_endpoints).await;
+    Ok(TERABOX_API.ping_endpoints().await)
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+async fn open_terabox_login(handle: tauri::AppHandle) -> Result<String, String> {
+    if let Some(existing) = handle.get_webview_window("terabox_login") {
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return Ok("focused_existing".to_string());
+    }
+
+    let h = handle.clone();
+    std::thread::spawn(move || {
+        let login_url = match "https://www.terabox.app/login".parse::<Url>() {
+            Ok(u) => u,
+            Err(e) => {
+                log::error!("[open_terabox_login] Failed to parse login URL: {}", e);
+                return;
+            }
+        };
+
+        let init_script = r#"
+            (function() {
+                var reported = false;
+                function check() {
+                    if (reported) return;
+                    try {
+                        var m = document.cookie.match(/(?:^|;\s*)ndus=([^;]+)/);
+                        if (m && m[1]) {
+                            reported = true;
+                            window.location.hash = "teralace_ndus=" + encodeURIComponent(m[1].trim());
+                        }
+                    } catch (e) {}
+                }
+                setInterval(check, 600);
+                document.addEventListener('DOMContentLoaded', check);
+            })();
+        "#;
+
+        let handle_for_nav = h.clone();
+        let builder = WebviewWindowBuilder::new(&h, "terabox_login", WebviewUrl::External(login_url))
+            .title("Sign In to TeraBox - TeraLace Auto-Capture")
+            .inner_size(840.0, 720.0)
+            .center()
+            .resizable(true)
+            .initialization_script(init_script)
+            .on_navigation(move |url: &Url| {
+                if let Some(fragment) = url.fragment() {
+                    if fragment.starts_with("teralace_ndus=") {
+                        let encoded = fragment.trim_start_matches("teralace_ndus=");
+                        if let Ok(cookie_val) = urlencoding::decode(encoded) {
+                            let clean_cookie = cookie_val.into_owned();
+                            log::info!("[open_terabox_login] TeraBox ndus cookie auto-captured successfully!");
+                            let nav_handle = handle_for_nav.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let mut settings = get_settings(&nav_handle);
+                                settings.terabox_cookie = Some(clean_cookie.clone());
+                                let _ = save_settings(&nav_handle, &settings);
+                                let _ = nav_handle.emit("terabox-cookie-captured", clean_cookie);
+                                if let Some(w) = nav_handle.get_webview_window("terabox_login") {
+                                    let _ = w.close();
+                                }
+                            });
+                            return false;
+                        }
+                    }
+                }
+                true
+            });
+
+        match builder.build() {
+            Ok(_) => log::info!("[open_terabox_login] TeraBox login window launched successfully"),
+            Err(e) => log::error!("[open_terabox_login] Failed to launch login window: {}", e),
+        }
+    });
+
+    Ok("opened_window".to_string())
+}
+
+#[cfg(not(desktop))]
+#[tauri::command]
+async fn open_terabox_login(_handle: tauri::AppHandle) -> Result<String, String> {
+    let _ = tauri_plugin_opener::open_url("https://www.terabox.app/login", None::<&str>);
+    Ok("opened_external".to_string())
 }
 
 #[tauri::command]
@@ -437,8 +531,54 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_app_logs(filter_level: Option<String>) -> Result<Vec<LogEntry>, String> {
+    if let Some(logger) = logging::get_logger() {
+        Ok(logger.get_entries(filter_level.as_deref()))
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+#[tauri::command]
+fn clear_app_logs() -> Result<(), String> {
+    if let Some(logger) = logging::get_logger() {
+        logger.clear();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn log_client_message(level: String, target: Option<String>, message: String) -> Result<(), String> {
+    if let Some(logger) = logging::get_logger() {
+        let tgt = target.unwrap_or_else(|| "frontend".to_string());
+        logger.push_entry(&level, &tgt, &message);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_debug_log_mode(enabled: bool) -> Result<(), String> {
+    if let Some(logger) = logging::get_logger() {
+        logger.set_debug_mode(enabled);
+        log::info!("[Logging] Debug log mode set to: {}", enabled);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_debug_log_mode() -> Result<bool, String> {
+    if let Some(logger) = logging::get_logger() {
+        Ok(logger.is_debug_mode())
+    } else {
+        Ok(false)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    logging::init_logger();
+    log::info!("[App] TeraLace initialized (version {})", env!("CARGO_PKG_VERSION"));
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -464,6 +604,16 @@ pub fn run() {
             }
         }
 
+        let handle_for_ping = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
+            log::info!("[Startup] Probing API endpoints health in background...");
+            let stats = TERABOX_API.ping_endpoints().await;
+            let healthy = stats.iter().filter(|s| s.healthy && !s.is_offline).count();
+            log::info!("[Startup] Endpoints checked: {} total, {} online", stats.len(), healthy);
+            let _ = handle_for_ping.emit("endpoint-health-updated", stats);
+        });
+
         Ok(())
     });
 
@@ -475,6 +625,8 @@ pub fn run() {
             get_download_link,
             extract_shorturl,
             get_endpoint_stats,
+            ping_endpoint_health,
+            open_terabox_login,
             save_api_endpoints,
             start_aria2,
             stop_aria2,
@@ -493,6 +645,11 @@ pub fn run() {
             get_app_settings,
             save_app_settings,
             save_terabox_cookie,
+            get_app_logs,
+            clear_app_logs,
+            log_client_message,
+            set_debug_log_mode,
+            get_debug_log_mode,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

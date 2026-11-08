@@ -8,6 +8,7 @@ import type {
   AppSettings,
   ApiEndpointConfig,
   EndpointHealthInfo,
+  LogEntry,
 } from "./types";
 
 export async function getTeraboxInfo(url: string): Promise<TeraboxInfo> {
@@ -46,6 +47,14 @@ export async function extractShorturl(url: string): Promise<string | null> {
 
 export async function getEndpointStats(): Promise<EndpointHealthInfo[]> {
   return invoke<EndpointHealthInfo[]>("get_endpoint_stats");
+}
+
+export async function pingEndpointHealth(): Promise<EndpointHealthInfo[]> {
+  return invoke<EndpointHealthInfo[]>("ping_endpoint_health");
+}
+
+export async function openTeraboxLogin(): Promise<string> {
+  return invoke<string>("open_terabox_login");
 }
 
 export async function saveApiEndpoints(
@@ -152,4 +161,28 @@ export async function saveAppSettings(settings: AppSettings): Promise<void> {
 
 export async function saveTeraboxCookie(cookie: string): Promise<void> {
   return invoke<void>("save_terabox_cookie", { cookie });
+}
+
+export async function getAppLogs(filterLevel?: string): Promise<LogEntry[]> {
+  return invoke<LogEntry[]>("get_app_logs", { filterLevel });
+}
+
+export async function clearAppLogs(): Promise<void> {
+  return invoke<void>("clear_app_logs");
+}
+
+export async function logClientMessage(
+  level: string,
+  message: string,
+  target?: string
+): Promise<void> {
+  return invoke<void>("log_client_message", { level, message, target });
+}
+
+export async function setDebugLogMode(enabled: boolean): Promise<void> {
+  return invoke<void>("set_debug_log_mode", { enabled });
+}
+
+export async function getDebugLogMode(): Promise<boolean> {
+  return invoke<boolean>("get_debug_log_mode");
 }

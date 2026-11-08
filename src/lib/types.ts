@@ -67,6 +67,8 @@ export interface EndpointHealthInfo {
   id: string;
   name: string;
   healthy: boolean;
+  is_offline?: boolean;
+  last_error?: string | null;
   success_count: number;
   failure_count: number;
   total_requests: number;
@@ -89,6 +91,14 @@ export interface AppSettings {
   api_endpoints: ApiEndpointConfig[];
   terabox_cookie?: string | null;
   max_concurrent: number;
+}
+
+export interface LogEntry {
+  timestamp_ms: number;
+  timestamp: string;
+  level: string;
+  target: string;
+  message: string;
 }
 
 export function formatBandwidth(kbPerSec: number): string {

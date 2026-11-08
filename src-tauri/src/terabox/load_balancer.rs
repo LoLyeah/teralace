@@ -20,6 +20,8 @@ pub struct InternalEndpoint {
     pub total_requests: u64,
     pub total_latency_ms: u64,
     pub circuit_open_until: Option<Instant>,
+    pub is_offline: bool,
+    pub last_error: Option<String>,
 }
 
 impl InternalEndpoint {
@@ -36,6 +38,8 @@ impl InternalEndpoint {
             total_requests: 0,
             total_latency_ms: 0,
             circuit_open_until: None,
+            is_offline: false,
+            last_error: None,
         }
     }
 
@@ -48,7 +52,7 @@ impl InternalEndpoint {
     }
 
     pub fn is_available(&self) -> bool {
-        self.enabled && !self.is_circuit_open()
+        self.enabled && !self.is_circuit_open() && !self.is_offline
     }
 
     pub fn circuit_remaining_secs(&self) -> u64 {
@@ -99,12 +103,87 @@ impl LoadBalancer {
                 updated.url = cfg.url.trim_end_matches('/').to_string();
                 updated.token = cfg.token.clone();
                 updated.enabled = cfg.enabled;
+                updated.is_offline = existing.is_offline;
+                updated.last_error = existing.last_error.clone();
                 new_list.push(updated);
             } else {
                 new_list.push(InternalEndpoint::new(cfg));
             }
         }
         *list = new_list;
+    }
+
+    /// Actively probe all enabled endpoints and detect offline/dead hosts
+    pub async fn ping_all_endpoints(&self, client: &reqwest::Client) -> Vec<EndpointHealthInfo> {
+        let current_endpoints = {
+            let list = self.endpoints.read().await;
+            list.clone()
+        };
+
+        for ep in &current_endpoints {
+            if !ep.enabled {
+                continue;
+            }
+
+            let test_url = ep.url.clone();
+            let req = client
+                .get(&test_url)
+                .timeout(Duration::from_millis(3500))
+                .header(
+                    reqwest::header::USER_AGENT,
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+                );
+
+            let start = Instant::now();
+            let result = req.send().await;
+            let latency = start.elapsed().as_millis() as u64;
+
+            let mut list = self.endpoints.write().await;
+            if let Some(target) = list.iter_mut().find(|e| e.id == ep.id) {
+                match result {
+                    Ok(resp) => {
+                        let status = resp.status();
+                        if status.as_u16() >= 500 {
+                            target.is_offline = true;
+                            target.last_error = Some(format!("HTTP {}", status));
+                            target.failure_count += 1;
+                            target.total_requests += 1;
+                        } else {
+                            // Status < 500 indicates server is online and responding (even 404/401)
+                            target.is_offline = false;
+                            target.last_error = None;
+                            target.circuit_open_until = None;
+                            target.consecutive_fails = 0;
+                            if target.total_latency_ms == 0 {
+                                target.total_latency_ms = latency;
+                                target.success_count = 1;
+                                target.total_requests = 1;
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        let reason = if err.is_connect() {
+                            "Connection failed / DNS unresolved".to_string()
+                        } else if err.is_timeout() {
+                            "Request timed out (3.5s)".to_string()
+                        } else {
+                            format!("Unreachable: {}", err)
+                        };
+                        target.is_offline = true;
+                        target.last_error = Some(reason.clone());
+                        target.failure_count += 1;
+                        target.total_requests += 1;
+                        target.consecutive_fails += 1;
+                        if target.consecutive_fails >= CIRCUIT_THRESHOLD {
+                            target.circuit_open_until = Some(Instant::now() + Duration::from_secs(CIRCUIT_COOLDOWN_SECS));
+                        }
+                        log::warn!("[LoadBalancer] Endpoint '{}' is offline: {}", target.name, reason);
+                    }
+                }
+            }
+        }
+
+        self.get_health_stats().await
     }
 
     /// Select next available healthy endpoint using round-robin
@@ -181,7 +260,9 @@ impl LoadBalancer {
                 EndpointHealthInfo {
                     id: ep.id.clone(),
                     name: ep.name.clone(),
-                    healthy: ep.enabled && !circuit_open,
+                    healthy: ep.enabled && !circuit_open && !ep.is_offline,
+                    is_offline: ep.is_offline,
+                    last_error: ep.last_error.clone(),
                     success_count: ep.success_count,
                     failure_count: ep.failure_count,
                     total_requests: ep.total_requests,

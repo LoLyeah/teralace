@@ -4,20 +4,24 @@ import { check } from '@tauri-apps/plugin-updater';
 import { relaunch, exit } from '@tauri-apps/plugin-process';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
+import { listen } from '@tauri-apps/api/event';
 import { 
   Loader2, Link, FileDown, Trash2, Play, Pause, FolderOpen, 
   Settings, X, ListX, Gauge, ShieldCheck, Plus, Server, Key,
   Clipboard, AlertCircle, CheckCircle2, Film, RefreshCw, Zap,
-  Layers, HardDrive, Info, ExternalLink, ArrowDown
+  Layers, HardDrive, Info, ExternalLink, ArrowDown, Terminal,
+  Sparkles, AlertTriangle, Check
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { FileList, SelectAllButton } from "./file-list";
 import { ThemeToggle } from "./theme-toggle";
+import { useTheme, THEME_PALETTES } from "./theme-provider";
+import { LogViewer } from "./log-viewer";
 import { 
   getTeraboxInfo, getFolderContents, getFolderFilesRecursive, formatBytes, formatSpeed, formatEta, stopAria2, setBandwidthLimit, 
-  getBandwidthLimit, getEndpointStats, saveApiEndpoints, openDownloadDir, saveTeraboxCookie 
+  getBandwidthLimit, getEndpointStats, pingEndpointHealth, saveApiEndpoints, openDownloadDir, saveTeraboxCookie, openTeraboxLogin
 } from "../lib/api";
 import { loadSettings, saveSettings, DEFAULT_ENDPOINTS } from "../lib/settings";
 import { 
@@ -44,7 +48,8 @@ export function DashboardLayout() {
   const [downloadDir, setDownloadDir] = useState("");
   const [downloadMode, setDownloadMode] = useState(2);
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'api' | 'cookie' | 'about'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'api' | 'cookie' | 'logs' | 'about'>('general');
+  const { palette, setPalette } = useTheme();
   const [mobileTab, setMobileTab] = useState<'source' | 'queue'>('source');
   const [maxOverallLimit, setMaxOverallLimit] = useState(0);
   const [maxDownloadLimit, setMaxDownloadLimit] = useState(0);
@@ -60,6 +65,10 @@ export function DashboardLayout() {
   const [newEpName, setNewEpName] = useState("");
   const [newEpUrl, setNewEpUrl] = useState("");
   const [newEpToken, setNewEpToken] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isPingingEndpoints, setIsPingingEndpoints] = useState(false);
+  const [cookieCapturedSuccess, setCookieCapturedSuccess] = useState(false);
+  const [copiedBookmarklet, setCopiedBookmarklet] = useState(false);
 
   // Subfolder & Path Navigation
   const [currentPath, setCurrentPath] = useState<string>("");
@@ -144,6 +153,54 @@ export function DashboardLayout() {
       // Ignored if backend busy
     }
   }, []);
+
+  // Listen for auto-captured cookies and background health updates
+  useEffect(() => {
+    let unlistenCookie: (() => void) | undefined;
+    let unlistenHealth: (() => void) | undefined;
+
+    listen<string>("terabox-cookie-captured", (event) => {
+      if (event.payload) {
+        setTeraboxCookie(event.payload);
+        setCookieCapturedSuccess(true);
+        setIsLoggingIn(false);
+        setTimeout(() => setCookieCapturedSuccess(false), 6000);
+      }
+    }).then(fn => { unlistenCookie = fn; }).catch(() => {});
+
+    listen<EndpointHealthInfo[]>("endpoint-health-updated", (event) => {
+      if (event.payload) {
+        setEndpointStats(event.payload);
+      }
+    }).then(fn => { unlistenHealth = fn; }).catch(() => {});
+
+    return () => {
+      if (unlistenCookie) unlistenCookie();
+      if (unlistenHealth) unlistenHealth();
+    };
+  }, []);
+
+  const handlePingEndpoints = async () => {
+    setIsPingingEndpoints(true);
+    try {
+      const stats = await pingEndpointHealth();
+      setEndpointStats(stats);
+    } catch (e) {
+      console.error("Failed to ping endpoints:", e);
+    } finally {
+      setIsPingingEndpoints(false);
+    }
+  };
+
+  const handleOpenLogin = async () => {
+    setIsLoggingIn(true);
+    try {
+      await openTeraboxLogin();
+    } catch (e) {
+      console.error("Failed to open TeraBox login:", e);
+      setIsLoggingIn(false);
+    }
+  };
 
   useEffect(() => {
     refreshStats();
@@ -464,7 +521,7 @@ export function DashboardLayout() {
     }
   };
 
-  const healthyCount = endpointStats.filter(e => e.healthy).length;
+  const healthyCount = endpointStats.filter(e => e.healthy && !e.is_offline && !e.circuit_open).length;
 
   return (
     <div className="h-screen h-[100dvh] flex flex-col bg-background text-foreground overflow-hidden select-none">
@@ -515,24 +572,33 @@ export function DashboardLayout() {
                 setSettingsTab('api');
               }
             }}
-            aria-label={`API Pool: ${healthyCount} active endpoints. Click to configure.`}
-            className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-muted/40 hover:bg-muted/80 cursor-pointer transition-all border border-border/60 hover:border-border focus:outline-none focus:ring-1 focus:ring-ring"
-            title="Click to inspect API endpoints"
+            aria-label={`API Pool: ${healthyCount > 0 ? `${healthyCount} active endpoints` : 'All endpoints offline (using Direct Scraper)'}. Click to configure.`}
+            className={cn(
+              "hidden sm:flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-all border focus:outline-none focus:ring-1 focus:ring-ring",
+              healthyCount > 0 
+                ? "bg-muted/40 hover:bg-muted/80 border-border/60 hover:border-border" 
+                : "bg-destructive/10 text-destructive border-destructive/30 hover:bg-destructive/20"
+            )}
+            title={healthyCount > 0 ? "Click to inspect API endpoints" : "All remote endpoints are offline. TeraLace is using direct scraping with your session cookie."}
           >
             <span className="relative flex h-2 w-2">
               <span className={cn(
                 "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
-                healthyCount > 0 ? "bg-emerald-400" : "bg-amber-400"
+                healthyCount > 0 ? "bg-emerald-400" : "bg-destructive"
               )} />
               <span className={cn(
                 "relative inline-flex rounded-full h-2 w-2",
-                healthyCount > 0 ? "bg-emerald-500" : "bg-amber-500"
+                healthyCount > 0 ? "bg-emerald-500" : "bg-destructive"
               )} />
             </span>
-            <span className="text-muted-foreground text-[11px]">API Pool:</span>
-            <span className={healthyCount > 0 ? "text-emerald-500 font-semibold" : "text-amber-500 font-semibold"}>
-              {healthyCount} Active
-            </span>
+            <span className={cn("text-[11px]", healthyCount > 0 ? "text-muted-foreground" : "text-destructive font-medium")}>API Pool:</span>
+            {healthyCount > 0 ? (
+              <span className="text-emerald-500 font-semibold">{healthyCount} Active</span>
+            ) : (
+              <span className="font-semibold text-destructive flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" /> Offline (Direct Scraper)
+              </span>
+            )}
           </div>
         </div>
 
@@ -849,6 +915,10 @@ export function DashboardLayout() {
                       onRemove={() => removeFromQueue(item.id)}
                       onRetry={() => retryItem(item.id)}
                       onOpenFolder={() => openDownloadDir(item.downloadDir || undefined)}
+                      onOpenCookieSettings={() => {
+                        setShowSettings(true);
+                        setSettingsTab('cookie');
+                      }}
                       onPreview={() => {
                         if (item.params.direct_link) {
                           setPreviewMediaUrl(item.params.direct_link);
@@ -995,6 +1065,19 @@ export function DashboardLayout() {
               </button>
               <button
                 role="tab"
+                id="tab-logs"
+                aria-controls="panel-logs"
+                aria-selected={settingsTab === 'logs'}
+                onClick={() => setSettingsTab('logs')}
+                className={cn(
+                  "py-2.5 px-2 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none shrink-0",
+                  settingsTab === 'logs' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Terminal className="h-3.5 w-3.5" aria-hidden="true" /> Logs & Debug
+              </button>
+              <button
+                role="tab"
                 id="tab-about"
                 aria-controls="panel-about"
                 aria-selected={settingsTab === 'about'}
@@ -1096,6 +1179,35 @@ export function DashboardLayout() {
                       ))}
                     </select>
                   </div>
+
+                  {/* Theme Accent Color Palette */}
+                  <div className="space-y-2 pt-2 border-t border-border/40">
+                    <span className="font-medium text-foreground block text-xs">Accent Color Palette (Android 17)</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {THEME_PALETTES.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setPalette(p.id)}
+                          className={cn(
+                            "flex items-center gap-2 p-2.5 rounded-xl border text-left transition-all hover:bg-accent/40",
+                            palette === p.id 
+                              ? "border-primary bg-primary/10 shadow-sm" 
+                              : "border-border/60"
+                          )}
+                        >
+                          <span 
+                            className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-sm shrink-0" 
+                            style={{ backgroundColor: p.color }}
+                          />
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-semibold text-[11px] text-foreground truncate">{p.name}</span>
+                            <span className="text-[9px] text-muted-foreground truncate">{p.label}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1126,39 +1238,61 @@ export function DashboardLayout() {
                         Configured Endpoints ({apiEndpoints.length})
                       </label>
                       <button 
-                        onClick={refreshStats}
-                        aria-label="Refresh API endpoint status"
-                        className="text-[11px] text-primary hover:underline flex items-center gap-1"
+                        onClick={handlePingEndpoints}
+                        disabled={isPingingEndpoints}
+                        aria-label="Refresh and probe API endpoint status"
+                        className="text-[11px] text-primary hover:underline flex items-center gap-1 disabled:opacity-50"
                       >
-                        <RefreshCw className="h-3 w-3" /> Refresh
+                        <RefreshCw className={cn("h-3 w-3", isPingingEndpoints && "animate-spin")} />
+                        {isPingingEndpoints ? "Probing..." : "Ping Status"}
                       </button>
                     </div>
+
+                    {/* All Endpoints Offline Warning Banner */}
+                    {healthyCount === 0 && apiEndpoints.length > 0 && (
+                      <div className="p-2.5 bg-destructive/10 border border-destructive/25 rounded-xl flex items-start gap-2 text-xs text-destructive">
+                        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                        <div className="leading-relaxed">
+                          <p className="font-semibold">All Remote API Endpoints Are Offline</p>
+                          <p className="text-[11px] opacity-90">
+                            Public API pools are currently unreachable. TeraLace automatically falls back to its <strong>Direct TeraBox Scraper</strong>. Ensure you have your session cookie configured in the <strong>TeraBox Cookie</strong> tab for uninterrupted downloads.
+                          </p>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                       {apiEndpoints.map(ep => {
                         const stat = endpointStats.find(s => s.id === ep.id);
                         const isCircuitOpen = stat?.circuit_open;
+                        const isOffline = stat?.is_offline;
                         return (
                           <div 
                             key={ep.id} 
                             className="p-2.5 border border-border/60 rounded-xl flex items-center justify-between bg-card text-xs hover:border-border transition-colors"
                           >
                             <div className="flex-1 min-w-0 pr-2">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className={cn(
                                   "w-2 h-2 rounded-full shrink-0",
                                   !ep.enabled ? "bg-muted-foreground" :
+                                  isOffline ? "bg-destructive animate-pulse" :
                                   isCircuitOpen ? "bg-amber-500 animate-pulse" : "bg-emerald-500"
                                 )} />
                                 <span className="font-semibold truncate">{ep.name}</span>
-                                {stat && stat.avg_latency_ms > 0 && (
-                                  <span className="text-[10px] text-muted-foreground font-mono">
-                                    {stat.avg_latency_ms}ms
+                                {isOffline && (
+                                  <span className="text-[10px] text-destructive bg-destructive/10 border border-destructive/20 px-1.5 py-0.5 rounded font-mono">
+                                    Offline ({stat?.last_error || "unreachable"})
                                   </span>
                                 )}
-                                {isCircuitOpen && (
+                                {isCircuitOpen && !isOffline && (
                                   <span className="text-[10px] text-amber-500 bg-amber-500/10 px-1.5 py-0.2 rounded font-mono">
                                     Cooldown: {stat?.circuit_remaining_s}s
+                                  </span>
+                                )}
+                                {!isOffline && !isCircuitOpen && stat && stat.avg_latency_ms > 0 && (
+                                  <span className="text-[10px] text-emerald-500 font-mono">
+                                    {stat.avg_latency_ms}ms
                                   </span>
                                 )}
                               </div>
@@ -1168,12 +1302,12 @@ export function DashboardLayout() {
                             </div>
                             <div className="flex items-center gap-1">
                               <Button 
-                                variant={ep.enabled ? "outline" : "ghost"} 
+                                variant={ep.enabled ? (isOffline ? "destructive" : "outline") : "ghost"} 
                                 size="sm" 
                                 className="h-7 text-[10px] px-2.5"
                                 onClick={() => handleToggleEndpoint(ep.id)}
                               >
-                                {ep.enabled ? "Active" : "Disabled"}
+                                {!ep.enabled ? "Disabled" : isOffline ? "Offline" : "Active"}
                               </Button>
                               <Button 
                                 variant="ghost" 
@@ -1191,13 +1325,40 @@ export function DashboardLayout() {
                     </div>
                   </div>
 
+                  {/* Self-Host Cloudflare Worker Resolver Banner */}
+                  <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 font-semibold text-foreground">
+                        <Server className="h-3.5 w-3.5 text-primary" /> Self-Host Your Cloudflare Worker
+                      </div>
+                      <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">100% Free & Private</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Deploy our ready-to-use Cloudflare Worker in under 2 minutes for a dedicated, uninterrupted private resolver.
+                    </p>
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <a 
+                        href="https://dash.cloudflare.com/" 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-medium"
+                      >
+                        <ExternalLink className="h-3 w-3" /> Cloudflare Dashboard
+                      </a>
+                      <span className="text-muted-foreground text-[10px]">•</span>
+                      <span className="text-[11px] text-muted-foreground font-mono">
+                        See cloudflare-worker/README.md
+                      </span>
+                    </div>
+                  </div>
+
                   {/* Add New Endpoint */}
                   <div className="border-t border-border/60 pt-3 space-y-2">
                     <label htmlFor="settings-new-ep-name" className="font-semibold text-xs text-foreground block">Add Custom Endpoint</label>
                     <div className="grid grid-cols-2 gap-2">
                       <Input 
                         id="settings-new-ep-name"
-                        placeholder="Provider Name (e.g. My NTM API)"
+                        placeholder="Provider Name (e.g. My Worker API)"
                         value={newEpName}
                         onChange={e => setNewEpName(e.target.value)}
                         className="text-xs h-8"
@@ -1213,7 +1374,7 @@ export function DashboardLayout() {
                     </div>
                     <div className="flex gap-2">
                       <Input 
-                        placeholder="Base URL: https://your-api.ntmterabox.me/"
+                        placeholder="Base URL: https://my-worker.workers.dev/"
                         value={newEpUrl}
                         onChange={e => setNewEpUrl(e.target.value)}
                         className="flex-1 text-xs h-8 font-mono"
@@ -1234,44 +1395,142 @@ export function DashboardLayout() {
                   id="panel-cookie" 
                   aria-labelledby="tab-cookie" 
                   tabIndex={0} 
-                  className="space-y-3 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
+                  className="space-y-3.5 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
                 >
-                  <div className="space-y-1.5">
-                    <label htmlFor="settings-terabox-cookie" className="font-medium text-foreground flex items-center gap-1.5">
-                      <Key className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> Personal TeraBox Session Cookie (<code className="text-xs font-mono">ndus</code>)
-                    </label>
-                    <div className="relative">
-                      <Input 
-                        id="settings-terabox-cookie"
-                        value={teraboxCookie}
-                        onChange={e => setTeraboxCookie(e.target.value)}
-                        placeholder="ndus=Yxxxxxx... or raw token"
-                        className="font-mono text-xs h-9 pr-8"
-                      />
-                      {teraboxCookie && (
-                        <button 
-                          onClick={() => setTeraboxCookie("")}
-                          aria-label="Clear cookie value"
-                          className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                  {/* Auto-Captured Success Notification */}
+                  {cookieCapturedSuccess && (
+                    <div className="p-3 bg-emerald-500/15 border border-emerald-500/30 rounded-xl flex items-center gap-2.5 text-xs text-emerald-400 animate-in fade-in zoom-in-95 duration-200">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                      <div>
+                        <p className="font-semibold text-emerald-400">TeraBox Session Cookie Captured Successfully!</p>
+                        <p className="text-[11px] opacity-90">Your <code className="font-mono font-bold">ndus</code> token was automatically detected and saved.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* One-Tap Sign In with TeraBox */}
+                  <div className="p-3.5 bg-gradient-to-r from-primary/10 via-primary/5 to-muted/20 border border-primary/20 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-xs text-foreground flex items-center gap-1.5">
+                        <Sparkles className="h-4 w-4 text-amber-400" /> One-Tap Sign In (Auto-Capture)
+                      </span>
+                      <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-full font-medium">
+                        Recommended
+                      </span>
                     </div>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Optional: Paste your personal TeraBox session cookie. When remote endpoints fail, the direct scraper uses this cookie to bypass anonymous speed throttles and download private folders or files larger than 4GB.
+                      Opens a secure login window. Once signed in via Google, Email, or Phone, TeraLace automatically extracts your session token and saves it without needing DevTools.
+                    </p>
+                    <Button 
+                      onClick={handleOpenLogin} 
+                      disabled={isLoggingIn}
+                      className="w-full sm:w-auto h-8 px-4 text-xs font-semibold flex items-center gap-2 shadow-sm"
+                    >
+                      {isLoggingIn ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Waiting for login... (Log in in the popup)
+                        </>
+                      ) : (
+                        <>
+                          <Key className="h-3.5 w-3.5" />
+                          Sign In with TeraBox
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* Manual Cookie Input with Paste */}
+                  <div className="space-y-1.5">
+                    <label htmlFor="settings-terabox-cookie" className="font-medium text-xs text-foreground flex items-center gap-1.5">
+                      <Key className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> Personal TeraBox Session Cookie (<code className="text-xs font-mono">ndus</code>)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Input 
+                          id="settings-terabox-cookie"
+                          value={teraboxCookie}
+                          onChange={e => setTeraboxCookie(e.target.value)}
+                          placeholder="ndus=Yxxxxxx... or raw token"
+                          className="font-mono text-xs h-9 pr-8"
+                        />
+                        {teraboxCookie && (
+                          <button 
+                            onClick={() => setTeraboxCookie("")}
+                            aria-label="Clear cookie value"
+                            className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 px-3 text-xs shrink-0"
+                        onClick={async () => {
+                          try {
+                            const text = await navigator.clipboard.readText();
+                            if (text) {
+                              const m = text.match(/(?:^|;\s*)ndus=([^;\s]+)/) || text.match(/^([A-Za-z0-9_-]{20,})$/);
+                              const val = m ? (m[1] || m[0]) : text.trim();
+                              setTeraboxCookie(val);
+                            }
+                          } catch (e) {
+                            console.error("Clipboard read error:", e);
+                          }
+                        }}
+                      >
+                        <Clipboard className="h-3.5 w-3.5 mr-1" /> Paste
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Optional: Paste your personal TeraBox session cookie (<code className="font-mono text-primary font-bold">ndus</code>). 
+                      When remote API endpoints fail or when downloading shared folders/large files, TeraBox actively blocks anonymous requests (<span className="text-destructive font-mono font-medium">31045: user not exists</span>). 
+                      Your session cookie provides authenticated access, bypasses guest throttles, and downloads private folders directly.
                     </p>
                   </div>
-                  <div className="p-3 bg-muted/30 rounded-xl text-[11px] text-muted-foreground space-y-1.5 border border-border/60">
-                    <p className="font-semibold text-foreground">How to get your ndus cookie:</p>
-                    <p>1. Open <a href="https://www.terabox.app/" target="_blank" rel="noreferrer" className="text-primary hover:underline">terabox.app</a> in your browser and sign in.</p>
-                    <p>2. Press <code>F12</code> (Inspect) &rarr; <strong>Application / Storage</strong> &rarr; <strong>Cookies</strong>.</p>
-                    <p>3. Copy the value of the <code>ndus</code> cookie and paste it above.</p>
+
+                  {/* Android & Mobile Extraction Helper */}
+                  <div className="p-3 bg-muted/30 rounded-xl text-[11px] text-muted-foreground space-y-2 border border-border/60">
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-foreground">Android & Mobile Extraction Helper:</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[10px] px-2 text-primary hover:text-primary"
+                        onClick={() => {
+                          const snippet = `javascript:(function(){var m=document.cookie.match(/ndus=([^;]+)/);if(m){navigator.clipboard.writeText(m[1]);alert('ndus copied to clipboard!')}else{alert('ndus cookie not found, please sign in first.')}})();`;
+                          navigator.clipboard.writeText(snippet);
+                          setCopiedBookmarklet(true);
+                          setTimeout(() => setCopiedBookmarklet(false), 3000);
+                        }}
+                      >
+                        {copiedBookmarklet ? <Check className="h-3 w-3 mr-1 text-emerald-400" /> : <Clipboard className="h-3 w-3 mr-1" />}
+                        {copiedBookmarklet ? "Copied Script!" : "Copy Helper Bookmarklet"}
+                      </Button>
+                    </div>
+                    <p>
+                      On Android, open <strong>terabox.app</strong> in Chrome or Kiwi Browser. You can paste the helper bookmarklet into the address bar to copy your <code className="font-mono text-primary font-bold">ndus</code> token directly to clipboard, then tap <strong>Paste</strong> above.
+                    </p>
                   </div>
                 </div>
               )}
 
-              {/* TAB 4: ABOUT */}
+              {/* TAB 4: LOGS & DIAGNOSTICS */}
+              {settingsTab === 'logs' && (
+                <div 
+                  role="tabpanel" 
+                  id="panel-logs" 
+                  aria-labelledby="tab-logs" 
+                  tabIndex={0} 
+                  className="space-y-4 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
+                >
+                  <LogViewer />
+                </div>
+              )}
+
+              {/* TAB 5: ABOUT */}
               {settingsTab === 'about' && (
                 <div 
                   role="tabpanel" 
@@ -1334,14 +1593,16 @@ function QueueItemRow({
   onRemove,
   onRetry,
   onOpenFolder,
-  onPreview
+  onPreview,
+  onOpenCookieSettings
 }: { 
   item: QueueItem, 
   isActive: boolean, 
   onRemove: () => void,
   onRetry?: () => void,
   onOpenFolder?: () => void,
-  onPreview?: () => void
+  onPreview?: () => void,
+  onOpenCookieSettings?: () => void
 }) {
   const isVideo = item.file.file_type === 'video' || item.file.file_type === 'audio';
 
@@ -1474,9 +1735,31 @@ function QueueItemRow({
         
         {/* Error Detail Message */}
         {item.error && (
-          <p className="text-[10px] text-destructive mt-1 truncate" title={item.error}>
-            {item.error}
-          </p>
+          <div className="mt-1 space-y-1">
+            <p className="text-[10px] text-destructive break-words leading-tight" title={item.error}>
+              {item.error}
+            </p>
+            {(item.error.toLowerCase().includes("cookie") || item.error.toLowerCase().includes("user not exists") || item.error.includes("403")) && (
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <span className="text-[9px] text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.2 rounded font-medium">
+                  Cookie Required
+                </span>
+                {onOpenCookieSettings && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenCookieSettings();
+                    }}
+                    className="text-[9px] text-primary hover:underline font-semibold flex items-center gap-0.5"
+                  >
+                    <span>Add ndus Cookie</span>
+                    <span>&rarr;</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

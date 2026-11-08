@@ -27,6 +27,11 @@ impl TeraboxApi {
         Self { client, balancer }
     }
 
+    /// Actively ping all configured endpoints to evaluate reachability
+    pub async fn ping_endpoints(&self) -> Vec<EndpointHealthInfo> {
+        self.balancer.ping_all_endpoints(&self.client).await
+    }
+
     fn default_headers() -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(USER_AGENT, HeaderValue::from_static(DEFAULT_USER_AGENT));
@@ -1146,6 +1151,61 @@ impl TeraboxApi {
         Err("Failed to resolve direct download link via TeraBox API".to_string())
     }
 
+    /// Fetches direct media stream URL for video files via /share/streaming
+    pub async fn fetch_share_streaming(
+        &self,
+        params: &DownloadParams,
+        user_cookie: Option<&str>,
+    ) -> Result<String, String> {
+        let stream_url = format!(
+            "https://www.terabox.app/share/streaming?app_id=250528&web=1&channel=dubox&clienttype=0&fid={}&shareid={}&uk={}&sign={}&timestamp={}&type=M3U8_AUTO_480",
+            params.fs_id, params.shareid, params.uk, params.sign, params.timestamp
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(USER_AGENT, HeaderValue::from_static(DEFAULT_USER_AGENT));
+        headers.insert(REFERER, HeaderValue::from_static("https://www.terabox.app/"));
+
+        if let Some(cookie) = user_cookie {
+            let cookie_str = cookie.trim().trim_matches('"').trim_matches('\'').trim();
+            if !cookie_str.is_empty() {
+                let formatted = if cookie_str.contains('=') {
+                    cookie_str.to_string()
+                } else {
+                    format!("ndus={}", cookie_str)
+                };
+                if let Ok(c_val) = HeaderValue::from_str(&formatted) {
+                    headers.insert(COOKIE, c_val);
+                }
+            }
+        }
+
+        let resp = self
+            .client
+            .get(&stream_url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| format!("Streaming request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("Streaming HTTP status {}", resp.status()));
+        }
+
+        let body = resp.text().await.map_err(|e| e.to_string())?;
+        if body.contains("#EXTM3U") {
+            for line in body.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+                    log::info!("[fetch_share_streaming] Extracted direct stream segment URL for fs_id={}", params.fs_id);
+                    return Ok(trimmed.to_string());
+                }
+            }
+        }
+
+        Err("No playable media stream found in playlist".to_string())
+    }
+
     /// Resolves the final direct download link for a file
     pub async fn get_download_link(
         &self,
@@ -1177,6 +1237,16 @@ impl TeraboxApi {
                 return Ok(DownloadLink {
                     ok: true,
                     download_link: Some(dl),
+                    error_message: None,
+                });
+            }
+
+            // Fallback: If sharedownload fails (e.g. anonymous or verification required), try share/streaming for video files
+            log::info!("[get_download_link] Trying share/streaming media stream fallback for fs_id={}", params.fs_id);
+            if let Ok(stream_url) = self.fetch_share_streaming(&params, user_cookie).await {
+                return Ok(DownloadLink {
+                    ok: true,
+                    download_link: Some(stream_url),
                     error_message: None,
                 });
             }

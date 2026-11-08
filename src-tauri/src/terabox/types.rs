@@ -92,6 +92,10 @@ pub struct EndpointHealthInfo {
     pub id: String,
     pub name: String,
     pub healthy: bool,
+    #[serde(default)]
+    pub is_offline: bool,
+    #[serde(default)]
+    pub last_error: Option<String>,
     pub success_count: u64,
     pub failure_count: u64,
     pub total_requests: u64,
