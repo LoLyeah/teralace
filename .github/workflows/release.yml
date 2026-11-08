@@ -73,13 +73,13 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\tauri\NSIS\Plugins\x86-unicode"
           if (-not (Test-Path "$env:LOCALAPPDATA\tauri\NSIS\makensis.exe")) {
-            Write-Host "Pre-downloading NSIS binary archive with retries..."
-            curl.exe --retry 10 --retry-delay 3 --retry-connrefused -fSL "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3/nsis-3.zip" -o "$env:TEMP\nsis-3.zip"
+            Write-Host "Pre-downloading NSIS binary archive via GitHub API..."
+            curl.exe --retry 10 --retry-delay 3 --retry-connrefused -fSL -H "Accept: application/octet-stream" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/tauri-apps/binary-releases/releases/assets/106383467" -o "$env:TEMP\nsis-3.zip"
             Expand-Archive -Path "$env:TEMP\nsis-3.zip" -DestinationPath "$env:LOCALAPPDATA\tauri\NSIS" -Force
           }
           if (-not (Test-Path "$env:LOCALAPPDATA\tauri\NSIS\Plugins\x86-unicode\nsis_tauri_utils.dll")) {
-            Write-Host "Pre-downloading nsis_tauri_utils.dll with retries..."
-            curl.exe --retry 10 --retry-delay 3 --retry-connrefused -fSL "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.1/nsis_tauri_utils.dll" -o "$env:LOCALAPPDATA\tauri\NSIS\Plugins\x86-unicode\nsis_tauri_utils.dll"
+            Write-Host "Pre-downloading nsis_tauri_utils.dll via GitHub API..."
+            curl.exe --retry 10 --retry-delay 3 --retry-connrefused -fSL -H "Accept: application/octet-stream" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/tauri-apps/nsis-tauri-utils/releases/assets/257923380" -o "$env:LOCALAPPDATA\tauri\NSIS\Plugins\x86-unicode\nsis_tauri_utils.dll"
           }
 
       - name: Pre-cache Linux AppImage Bundling Tools
@@ -88,13 +88,13 @@ jobs:
         run: |
           mkdir -p ~/.cache/tauri
           if [ ! -f ~/.cache/tauri/AppRun-x86_64 ]; then
-            echo "Pre-downloading AppRun-x86_64 with retries..."
-            curl --retry 10 --retry-delay 3 --retry-connrefused -fSL "https://github.com/AppImage/AppImageKit/releases/download/continuous/AppRun-x86_64" -o ~/.cache/tauri/AppRun-x86_64
+            echo "Pre-downloading AppRun-x86_64 via GitHub API..."
+            curl --retry 10 --retry-delay 3 --retry-connrefused -fSL -H "Accept: application/octet-stream" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/AppImage/AppImageKit/releases/assets/98605518" -o ~/.cache/tauri/AppRun-x86_64
             chmod +x ~/.cache/tauri/AppRun-x86_64
           fi
           if [ ! -f ~/.cache/tauri/linuxdeploy-x86_64.AppImage ]; then
-            echo "Pre-downloading linuxdeploy-x86_64.AppImage with retries..."
-            curl --retry 10 --retry-delay 3 --retry-connrefused -fSL "https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage" -o ~/.cache/tauri/linuxdeploy-x86_64.AppImage
+            echo "Pre-downloading linuxdeploy-x86_64.AppImage via GitHub API..."
+            curl --retry 10 --retry-delay 3 --retry-connrefused -fSL -H "Accept: application/octet-stream" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/tauri-apps/binary-releases/releases/assets/182515537" -o ~/.cache/tauri/linuxdeploy-x86_64.AppImage
             chmod +x ~/.cache/tauri/linuxdeploy-x86_64.AppImage
           fi
 

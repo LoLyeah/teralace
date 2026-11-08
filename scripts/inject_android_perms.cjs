@@ -196,6 +196,18 @@ gradleFiles.forEach(gradlePath => {
   }
 });
 
+// 5b. Ensure gradle-wrapper uses resilient mirror to prevent GitHub 504 Gateway Timeout
+const wrapperPropsPath = path.resolve(__dirname, '../src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties');
+if (fs.existsSync(wrapperPropsPath)) {
+  let props = fs.readFileSync(wrapperPropsPath, 'utf8');
+  props = props.replace(
+    /distributionUrl=.*/g,
+    'distributionUrl=https\\://mirrors.cloud.tencent.com/gradle/gradle-8.9-bin.zip'
+  );
+  fs.writeFileSync(wrapperPropsPath, props, 'utf8');
+  console.log('Updated gradle-wrapper.properties to use high-speed CDN mirror');
+}
+
 // 6. Relax StrictMode in MainActivity.kt to prevent any FileUriExposedException on legacy external storage
 const mainActivityPath = path.resolve(__dirname, '../src-tauri/gen/android/app/src/main/java/com/teralace/downloader/MainActivity.kt');
 if (fs.existsSync(mainActivityPath)) {
