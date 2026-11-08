@@ -125,13 +125,9 @@ md.push(`### 📦 Download Packages`);
 md.push(`| Platform | Format | Filename | Description |`);
 md.push(`|:---|:---|:---|:---|`);
 md.push(`| **Windows** | Setup Installer | \`TeraLace_${version}_x64-setup.exe\` | Recommended standard installer (x64) |`);
-md.push(`| **Windows** | MSI Package | \`TeraLace_${version}_x64_en-US.msi\` | Windows Installer package |`);
 md.push(`| **Windows** | Portable Zip | \`TeraLace_${version}_x64_portable.zip\` | Standalone portable archive (No install) |`);
-md.push(`| **Windows** | Portable EXE | \`TeraLace_portable.exe\` | Direct standalone executable |`);
 md.push(`| **macOS** | Universal DMG | \`TeraLace_${version}_universal.dmg\` | Apple Silicon (M1/M2/M3/M4) + Intel |`);
-md.push(`| **macOS** | App Archive | \`TeraLace_${version}_universal.app.tar.gz\` | Compressed .app bundle |`);
 md.push(`| **Android** | Universal APK | \`TeraLace_${version}_universal.apk\` | Versioned signed APK for all Android devices |`);
-md.push(`| **Android** | Universal APK | \`TeraLace.apk\` | Direct download link for Android |`);
 
 const markdownContent = md.join('\n');
 

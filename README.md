@@ -25,10 +25,10 @@ Pre-compiled, release-ready packages for all platforms are available on the **[G
 
 | Platform | Type | Format | Architecture | Download Link |
 |:---|:---|:---|:---|:---|
-| **Windows** | **Portable (Zero-Install)** | Standalone `.exe` / `.zip` | x86_64 | [**TeraLace_portable.exe**](https://github.com/LoLyeah/teralace/releases/latest) &bull; [`.zip`](https://github.com/LoLyeah/teralace/releases/latest) |
-| **Windows** | Standard Installer | Setup `.exe` / `.msi` | x86_64 | [Setup `.exe`](https://github.com/LoLyeah/teralace/releases/latest) &bull; [MSI Installer](https://github.com/LoLyeah/teralace/releases/latest) |
-| **macOS** | Universal Bundle | `.dmg` / `.app.tar.gz` | Apple Silicon (`M1–M4`) & Intel (`x64`) | [**Universal `.dmg`**](https://github.com/LoLyeah/teralace/releases/latest) |
-| **Android** | Signed Package | `.apk` | ARM64 (`arm64-v8a`) | [**TeraLace.apk**](https://github.com/LoLyeah/teralace/releases/latest) |
+| **Windows** | Standard Installer | Setup `.exe` | x86_64 | [**Setup `.exe`**](https://github.com/LoLyeah/teralace/releases/latest) |
+| **Windows** | Portable Archive | `.zip` | x86_64 | [**Portable `.zip`**](https://github.com/LoLyeah/teralace/releases/latest) |
+| **macOS** | Universal Bundle | `.dmg` | Apple Silicon (`M1–M4`) & Intel (`x64`) | [**Universal `.dmg`**](https://github.com/LoLyeah/teralace/releases/latest) |
+| **Android** | Signed Package | `.apk` | Universal (`ARM64` / `x86_64`) | [**Universal `.apk`**](https://github.com/LoLyeah/teralace/releases/latest) |
 
 ---
 
