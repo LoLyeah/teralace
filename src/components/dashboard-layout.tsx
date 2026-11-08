@@ -1406,7 +1406,7 @@ export function DashboardLayout() {
                         </div>
                         <div>
                           <div className="font-semibold text-xs text-foreground flex items-center gap-1.5">
-                            Material You (Android 17)
+                            Material You
                             {materialYou && (
                               <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium">
                                 Active
@@ -1440,8 +1440,15 @@ export function DashboardLayout() {
                     </div>
 
                     <div className="space-y-2">
-                      <span className="font-medium text-foreground block text-xs">Accent Color Palette</span>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-foreground block text-xs">Accent Color Palette</span>
+                        {palette === 'dynamic' && (
+                          <span className="text-[10px] text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 animate-in fade-in duration-150">
+                            <Sparkles className="h-2.5 w-2.5 text-primary" /> Dynamic Monet Active
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {THEME_PALETTES.map((p) => (
                           <button
                             key={p.id}
@@ -1456,15 +1463,23 @@ export function DashboardLayout() {
                           >
                             <span 
                               className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-sm shrink-0" 
-                              style={{ backgroundColor: p.color }}
+                              style={{ background: p.color }}
                             />
                             <div className="flex flex-col min-w-0">
-                              <span className="font-semibold text-[11px] text-foreground truncate">{p.name}</span>
+                              <span className="font-semibold text-[11px] text-foreground truncate flex items-center gap-1">
+                                {p.name}
+                                {p.isDynamic && <Sparkles className="h-2.5 w-2.5 text-primary shrink-0" />}
+                              </span>
                               <span className="text-[9px] text-muted-foreground truncate">{p.label}</span>
                             </div>
                           </button>
                         ))}
                       </div>
+                      {palette === 'dynamic' && (
+                        <p className="text-[10.5px] text-muted-foreground leading-relaxed bg-muted/30 p-2.5 rounded-lg border border-border/40 animate-in fade-in duration-150">
+                          🎨 <strong>Material You Dynamic:</strong> Automatically extracts dynamic tones from your device&apos;s wallpaper on Android 12+ (Monet engine) or system accent color on Windows 11/macOS, harmonizing buttons, surfaces, and borders.
+                        </p>
+                      )}
                     </div>
 
                   </div>

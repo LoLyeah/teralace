@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 @layer base {
-  :root, .light {
+  :root {
     color-scheme: light;
     --background: 210 20% 98%;
     --foreground: 222.2 84% 4.9%;
@@ -99,11 +99,23 @@
   }
 
   /* ==========================================================================
-     Android 17 Material 3 Tonal Color Palettes
+     Material 3 / Material You Tonal Color Palettes
      ========================================================================== */
 
+  /* 0. Material You Dynamic (System Wallpaper & Monet Accent) */
+  .palette-dynamic, .light.palette-dynamic, .light .palette-dynamic {
+    --primary: 262 82% 56%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 262 82% 56%;
+  }
+  .dark.palette-dynamic, .dark .palette-dynamic {
+    --primary: 262 90% 78%;
+    --primary-foreground: 262 45% 10%;
+    --ring: 262 90% 78%;
+  }
+
   /* 1. Glacier Sky (Default Brand Palette) */
-  .palette-glacier {
+  .palette-glacier, .light.palette-glacier, .light .palette-glacier {
     --primary: 201 94% 44%;
     --primary-foreground: 210 40% 98%;
     --ring: 201 94% 44%;
@@ -115,7 +127,7 @@
   }
 
   /* 2. Warm Sand */
-  .palette-sand {
+  .palette-sand, .light.palette-sand, .light .palette-sand {
     --primary: 37 90% 38%;
     --primary-foreground: 0 0% 100%;
     --ring: 37 90% 38%;
@@ -127,7 +139,7 @@
   }
 
   /* 3. Mineral Sage */
-  .palette-sage {
+  .palette-sage, .light.palette-sage, .light .palette-sage {
     --primary: 156 70% 34%;
     --primary-foreground: 0 0% 100%;
     --ring: 156 70% 34%;
@@ -139,7 +151,7 @@
   }
 
   /* 4. Dusty Lavender */
-  .palette-lavender {
+  .palette-lavender, .light.palette-lavender, .light .palette-lavender {
     --primary: 231 65% 54%;
     --primary-foreground: 0 0% 100%;
     --ring: 231 65% 54%;
@@ -151,7 +163,7 @@
   }
 
   /* 5. Terracotta Clay */
-  .palette-terracotta {
+  .palette-terracotta, .light.palette-terracotta, .light .palette-terracotta {
     --primary: 16 75% 45%;
     --primary-foreground: 0 0% 100%;
     --ring: 16 75% 45%;
@@ -163,7 +175,7 @@
   }
 
   /* 6. Frosted Pearl */
-  .palette-pearl {
+  .palette-pearl, .light.palette-pearl, .light .palette-pearl {
     --primary: 214 32% 40%;
     --primary-foreground: 210 40% 98%;
     --ring: 214 32% 40%;
@@ -172,6 +184,18 @@
     --primary: 214 32% 91%;
     --primary-foreground: 222.2 47.4% 7.8%;
     --ring: 214 32% 91%;
+  }
+
+  /* 7. Nordic Rose */
+  .palette-rose, .light.palette-rose, .light .palette-rose {
+    --primary: 342 75% 48%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 342 75% 48%;
+  }
+  .dark.palette-rose, .dark .palette-rose {
+    --primary: 342 90% 76%;
+    --primary-foreground: 222.2 47.4% 7.8%;
+    --ring: 342 90% 76%;
   }
 }
 

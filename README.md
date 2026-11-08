@@ -17,6 +17,10 @@
   <img src="https://img.shields.io/badge/License-GPL--3.0-green?style=for-the-badge" alt="License" />
 </p>
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="Teralace Interface" width="800" />
+</p>
+
 ---
 
 ## 📥 Downloads
@@ -55,7 +59,7 @@ Pre-compiled, release-ready packages for all platforms are available on the **[G
 * **One-Tap In-App Login:** Native sign-in popup that auto-captures and saves your TeraBox `ndus` session cookie without requiring browser DevTools.
 * **In-App Diagnostic Log Viewer:** Integrated real-time ring buffer logger in Settings to view errors, trace requests, and diagnose network issues directly inside the app.
 * **In-App Media Streaming:** Instant video and audio player preview before or during download.
-* **Android 17 Material You Vector Branding & Tonal Themes:** Pure geometric circle & piercing arrow branding engineered with safe-zone compliance, seamless dynamic monochrome theming, and 6 selectable Material 3 tonal color palettes (Glacier Sky, Warm Sand, Mineral Sage, Dusty Lavender, Terracotta Clay, and Frosted Pearl).
+* **Material You Dynamic Theming & Vector Branding:** Pure geometric circle & piercing arrow branding engineered with safe-zone compliance, seamless dynamic monochrome theming, and selectable Material 3 tonal color palettes including wallpaper Monet auto-detection.
 * **Private Downloads & Speed Unlock:** Personal `ndus` session cookie support to bypass guest bandwidth limits and fetch private shared folders.
 
 ---
