@@ -109,4 +109,56 @@ if (fs.existsSync(resDir)) {
     });
     console.log('Synchronized complete Android icon suite (standard, round, foreground) into app resource directory');
   }
+
+  // 4. Ensure Adaptive Icons in mipmap-anydpi-v26 support Material You dynamic theming (monochrome)
+  const anydpiDir = path.join(resDir, 'mipmap-anydpi-v26');
+  if (!fs.existsSync(anydpiDir)) {
+    fs.mkdirSync(anydpiDir, { recursive: true });
+  }
+  const adaptiveXml = `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>
+`;
+  fs.writeFileSync(path.join(anydpiDir, 'ic_launcher.xml'), adaptiveXml, 'utf8');
+  fs.writeFileSync(path.join(anydpiDir, 'ic_launcher_round.xml'), adaptiveXml, 'utf8');
+  console.log('Created mipmap-anydpi-v26 adaptive and monochrome icons for Material You');
 }
+
+// 5. Update Android compileSdk and targetSdk to API 35 (Android 15 / Latest)
+const gradleFiles = [
+  path.resolve(__dirname, '../src-tauri/gen/android/app/build.gradle.kts'),
+  path.resolve(__dirname, '../src-tauri/gen/android/app/build.gradle')
+];
+
+gradleFiles.forEach(gradlePath => {
+  if (fs.existsSync(gradlePath)) {
+    let gradle = fs.readFileSync(gradlePath, 'utf8');
+    let modified = false;
+
+    // Update compileSdk
+    if (/compileSdk\s*=\s*\d+/.test(gradle)) {
+      gradle = gradle.replace(/compileSdk\s*=\s*\d+/g, 'compileSdk = 35');
+      modified = true;
+    } else if (/compileSdkVersion\s*\d+/.test(gradle)) {
+      gradle = gradle.replace(/compileSdkVersion\s*\d+/g, 'compileSdkVersion 35');
+      modified = true;
+    }
+
+    // Update targetSdk
+    if (/targetSdk\s*=\s*\d+/.test(gradle)) {
+      gradle = gradle.replace(/targetSdk\s*=\s*\d+/g, 'targetSdk = 35');
+      modified = true;
+    } else if (/targetSdkVersion\s*\d+/.test(gradle)) {
+      gradle = gradle.replace(/targetSdkVersion\s*\d+/g, 'targetSdkVersion 35');
+      modified = true;
+    }
+
+    if (modified) {
+      fs.writeFileSync(gradlePath, gradle, 'utf8');
+      console.log(`Updated compileSdk and targetSdk to 35 in ${path.basename(gradlePath)}`);
+    }
+  }
+});

@@ -119,7 +119,7 @@ jobs:
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;26.1.10909125" "platforms;android-34" "build-tools;34.0.0"
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;26.1.10909125" "platforms;android-35" "platforms;android-34" "build-tools;35.0.0" "build-tools;34.0.0"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
           echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
 
@@ -166,10 +166,12 @@ jobs:
         run: |
           keytool -genkey -v -keystore app.keystore -alias teralace -keyalg RSA -keysize 2048 -validity 10000 -storepass teralace123 -keypass teralace123 -dname "CN=TeraLace, OU=App, O=TeraLace, L=City, S=State, C=US"
           mkdir -p dist-apk
+          APKSIGNER=$(find $ANDROID_HOME/build-tools/ -name apksigner | sort -V | tail -n 1)
+          echo "Using apksigner: $APKSIGNER"
           for f in $(find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk"); do
             echo "Signing $f..."
-            $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks app.keystore --ks-pass pass:teralace123 --ks-key-alias teralace --key-pass pass:teralace123 "$f"
-            $ANDROID_HOME/build-tools/34.0.0/apksigner verify "$f"
+            "$APKSIGNER" sign --ks app.keystore --ks-pass pass:teralace123 --ks-key-alias teralace --key-pass pass:teralace123 "$f"
+            "$APKSIGNER" verify "$f"
             cp "$f" "dist-apk/TeraLace_${APP_VERSION}_universal.apk"
           done
           ls -la dist-apk/
