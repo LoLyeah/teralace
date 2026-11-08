@@ -1,4 +1,4 @@
-name: Release Multiplatform (Windows, macOS, Android)
+name: Release Multiplatform (Windows, macOS, Linux, Android)
 
 on:
   push:
@@ -20,6 +20,9 @@ jobs:
           - platform: 'macos-latest'
             target: 'aarch64-apple-darwin,x86_64-apple-darwin'
             args: '--target universal-apple-darwin --bundles dmg'
+          - platform: 'ubuntu-22.04'
+            target: 'x86_64-unknown-linux-gnu'
+            args: '--bundles appimage'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -38,6 +41,20 @@ jobs:
       - name: Generate Changelog
         id: changelog
         run: node scripts/generate_changelog.cjs
+
+      - name: Install Linux System Dependencies
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils \
+            curl \
+            wget \
+            file
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -85,6 +102,24 @@ jobs:
           tag_name: ${{ github.ref_name }}
           files: |
             dist-portable/TeraLace_*_x64_portable.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Locate & Package Linux AppImage
+        if: startsWith(matrix.platform, 'ubuntu')
+        shell: bash
+        run: |
+          mkdir -p dist-appimage
+          find src-tauri/target/ -type f -name "*.AppImage" -exec cp {} dist-appimage/ \;
+          ls -la dist-appimage/
+
+      - name: Upload Linux AppImage Release
+        if: startsWith(matrix.platform, 'ubuntu') && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            dist-appimage/*.AppImage
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

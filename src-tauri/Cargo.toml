@@ -1,12 +1,12 @@
 [package]
 name = "teralace"
 version = "1.2.1"
-description = "TeraLace - Fast and resilient multiplatform TeraBox file downloader"
+description = "Teralace - Fast and resilient multiplatform TeraBox file downloader"
 authors = ["LoLyeah"]
 license = "GPL-3.0"
 homepage = "https://github.com/LoLyeah/teralace"
 repository = "https://github.com/LoLyeah/teralace"
-keywords = ["terabox", "downloader", "tauri", "desktop", "android"]
+keywords = ["terabox", "downloader", "tauri", "desktop", "linux", "appimage", "android"]
 categories = ["multimedia::download", "network-programming"]
 edition = "2021"
 

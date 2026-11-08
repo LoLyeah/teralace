@@ -1,7 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useState, useCallback, useEffect, useMemo } from "react";
-import { check } from '@tauri-apps/plugin-updater';
-import { relaunch, exit } from '@tauri-apps/plugin-process';
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { exit } from '@tauri-apps/plugin-process';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
@@ -10,7 +9,8 @@ import {
   Settings, X, ListX, Gauge, ShieldCheck, Plus, Server, Key,
   Clipboard, AlertCircle, CheckCircle2, Film, RefreshCw, Zap,
   Layers, HardDrive, Info, ExternalLink, ArrowDown, Terminal,
-  Sparkles, AlertTriangle, Check
+  Sparkles, AlertTriangle, Check, Bookmark, Smartphone,
+  Sun, Moon, Monitor, ChevronDown, ChevronUp, Code2
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -21,15 +21,20 @@ import { useTheme, THEME_PALETTES } from "./theme-provider";
 import { LogViewer } from "./log-viewer";
 import { 
   getTeraboxInfo, getFolderContents, getFolderFilesRecursive, formatBytes, formatSpeed, formatEta, stopAria2, setBandwidthLimit, 
-  getBandwidthLimit, getEndpointStats, pingEndpointHealth, saveApiEndpoints, openDownloadDir, saveTeraboxCookie, openTeraboxLogin
+  getBandwidthLimit, getEndpointStats, pingEndpointHealth, saveApiEndpoints, openDownloadDir, openFile, deleteFileFromDisk, checkForUpdates, saveTeraboxCookie, openTeraboxLogin
 } from "../lib/api";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { loadSettings, saveSettings, DEFAULT_ENDPOINTS } from "../lib/settings";
 import { 
   TeraboxInfo, TeraboxFileInfo, BANDWIDTH_PRESETS, 
-  ApiEndpointConfig, EndpointHealthInfo 
+  ApiEndpointConfig, EndpointHealthInfo, UpdateCheckResult 
 } from "../lib/types";
 import { useDownloadQueue, QueueItem } from "../hooks/use-download-queue";
 import { cn } from "../lib/utils";
+import workerScript from "../../cloudflare-worker/worker.js?raw";
+
+declare const __APP_VERSION__: string;
+const defaultAppVersion = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.2.1";
 
 const SUPPORTED_MIRRORS = [
   "terabox.app",
@@ -40,6 +45,17 @@ const SUPPORTED_MIRRORS = [
 ];
 
 export function DashboardLayout() {
+  const [currentAppVersion, setCurrentAppVersion] = useState(defaultAppVersion);
+
+  useEffect(() => {
+    import('@tauri-apps/api/app')
+      .then(m => m.getVersion())
+      .then(v => {
+        if (v) setCurrentAppVersion(v);
+      })
+      .catch(() => {});
+  }, []);
+
   const [url, setUrl] = useState("");
   const [isFetching, setIsFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +65,14 @@ export function DashboardLayout() {
   const [downloadMode, setDownloadMode] = useState(2);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'api' | 'cookie' | 'logs' | 'about'>('general');
-  const { palette, setPalette, materialYou, setMaterialYou } = useTheme();
+  const { theme, setTheme, palette, setPalette, materialYou, setMaterialYou } = useTheme();
+  const settingsBodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (settingsBodyRef.current) {
+      settingsBodyRef.current.scrollTop = 0;
+    }
+  }, [settingsTab]);
   const [mobileTab, setMobileTab] = useState<'source' | 'queue'>('source');
   const [maxOverallLimit, setMaxOverallLimit] = useState(0);
   const [maxDownloadLimit, setMaxDownloadLimit] = useState(0);
@@ -69,6 +92,8 @@ export function DashboardLayout() {
   const [isPingingEndpoints, setIsPingingEndpoints] = useState(false);
   const [cookieCapturedSuccess, setCookieCapturedSuccess] = useState(false);
   const [copiedBookmarklet, setCopiedBookmarklet] = useState(false);
+  const [showWorkerGuide, setShowWorkerGuide] = useState(false);
+  const [copiedWorkerScript, setCopiedWorkerScript] = useState(false);
 
   // Subfolder & Path Navigation
   const [currentPath, setCurrentPath] = useState<string>("");
@@ -100,6 +125,93 @@ export function DashboardLayout() {
   const activeDownloadingCount = useMemo(() => {
     return queue.filter(item => item.status === 'downloading').length;
   }, [queue]);
+
+  const hasActiveOrPending = useMemo(() => {
+    return queue.some(item => item.status === 'downloading' || item.status === 'fetching_link' || item.status === 'pending');
+  }, [queue]);
+
+  const handleOpenFile = useCallback(async (item: QueueItem) => {
+    try {
+      const targetPath = item.filePath || (item.downloadDir ? `${item.downloadDir}/${item.file.name}` : item.file.name);
+      await openFile(targetPath);
+    } catch (e) {
+      console.error("Failed to open file, falling back to opening folder:", e);
+      try {
+        await openDownloadDir(item.downloadDir || undefined);
+      } catch (err) {
+        console.error("Failed to open destination folder:", err);
+      }
+    }
+  }, []);
+
+  // Update Checker State (Manual, no auto-update)
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
+  const handleCheckForUpdates = useCallback(async () => {
+    setIsCheckingUpdate(true);
+    setUpdateError(null);
+    setUpdateResult(null);
+    try {
+      const res = await checkForUpdates();
+      setUpdateResult(res);
+    } catch (err) {
+      console.error("Update check failed:", err);
+      setUpdateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  }, []);
+
+  // Delete Confirmation State
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    type: 'single' | 'completed' | 'all';
+    item?: QueueItem;
+  } | null>(null);
+  const [deleteFromStorage, setDeleteFromStorage] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteConfirmation) return;
+    setIsDeleting(true);
+    try {
+      if (deleteConfirmation.type === 'single' && deleteConfirmation.item) {
+        const item = deleteConfirmation.item;
+        if (deleteFromStorage) {
+          const targetPath = item.filePath || (item.downloadDir ? `${item.downloadDir}/${item.file.name}` : undefined);
+          if (targetPath) {
+            try {
+              await deleteFileFromDisk(targetPath);
+            } catch (err) {
+              console.error("Failed to delete file from disk:", err);
+            }
+          }
+        }
+        await removeFromQueue(item.id);
+      } else if (deleteConfirmation.type === 'completed') {
+        const completedItems = queue.filter(i => i.status === 'completed');
+        if (deleteFromStorage) {
+          for (const item of completedItems) {
+            const targetPath = item.filePath || (item.downloadDir ? `${item.downloadDir}/${item.file.name}` : undefined);
+            if (targetPath) {
+              try {
+                await deleteFileFromDisk(targetPath);
+              } catch (err) {
+                console.error("Failed to delete file from disk:", err);
+              }
+            }
+          }
+        }
+        clearCompleted();
+      } else if (deleteConfirmation.type === 'all') {
+        clearAll();
+      }
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirmation(null);
+    }
+  }, [deleteConfirmation, deleteFromStorage, queue, removeFromQueue, clearCompleted, clearAll]);
 
   // Currently visible files based on active directory path
   const currentFiles = useMemo(() => {
@@ -262,28 +374,6 @@ export function DashboardLayout() {
     setApiEndpoints(prev => prev.filter(ep => ep.id !== id));
   };
 
-  // Auto-Update Check
-  useEffect(() => {
-    const initUpdate = async () => {
-      try {
-        const update = await check();
-        if (update) {
-          const yes = await confirm(
-            `Update to version ${update.version} is available!\n\n${update.body || ''}`,
-            { title: 'Update Available', kind: 'info' }
-          );
-          if (yes) {
-            await update.downloadAndInstall();
-            await relaunch();
-          }
-        }
-      } catch (e) {
-        // Silently catch in mobile/offline
-      }
-    };
-    initUpdate();
-  }, []);
-
   // Graceful Exit Handler (Desktop)
   useEffect(() => {
     const setupExitHandler = async () => {
@@ -293,7 +383,7 @@ export function DashboardLayout() {
           event.preventDefault();
           const yes = await confirm(
             "Are you sure you want to quit?\nActive downloads will be stopped.",
-            { title: 'Quit TeraLace', kind: 'warning', okLabel: 'Quit', cancelLabel: 'Cancel' }
+            { title: 'Quit Teralace', kind: 'warning', okLabel: 'Quit', cancelLabel: 'Cancel' }
           );
           
           if (yes) {
@@ -577,17 +667,17 @@ export function DashboardLayout() {
           <div className="relative group cursor-default">
             <img 
               src="/logo.svg" 
-              alt="TeraLace Logo" 
+              alt="Teralace Logo" 
               className="w-7 h-7 sm:w-8 sm:h-8 object-contain transition-transform duration-200 group-hover:scale-105 drop-shadow-sm"
             />
           </div>
           <div>
             <div className="flex items-center gap-1.5 sm:gap-2">
               <span className="font-bold text-sm sm:text-base md:text-lg tracking-tight text-foreground">
-                TeraLace
+                Teralace
               </span>
               <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded-full font-mono font-medium">
-                v1.1.2
+                v{currentAppVersion}
               </span>
             </div>
           </div>
@@ -596,8 +686,8 @@ export function DashboardLayout() {
         {/* Center: Live Telemetry & API Pool Status Widget */}
         <div className="flex items-center gap-2 sm:gap-2.5">
           {/* Live Global Download Speed Indicator */}
-          {totalSpeed > 0 && (
-            <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-xs font-mono font-semibold bg-primary/10 text-primary border border-primary/25 animate-pulse shadow-sm shadow-primary/10 animate-in fade-in zoom-in-95 duration-200">
+          {(activeDownloadingCount > 0 || totalSpeed > 0) && (
+            <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-xs font-mono font-semibold bg-primary/10 text-primary border border-primary/25 shadow-sm shadow-primary/10 transition-opacity duration-200">
               <Zap className="h-3.5 w-3.5 fill-current" />
               <span>{formatSpeed(totalSpeed)}</span>
             </div>
@@ -767,6 +857,7 @@ export function DashboardLayout() {
                         <Clipboard className="h-3.5 w-3.5" />
                       </button>
                     )}
+
                   </div>
                 </div>
                 <Button 
@@ -919,13 +1010,19 @@ export function DashboardLayout() {
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  onClick={isProcessing ? pauseQueue : startQueue}
-                  disabled={queue.length === 0}
+                  onClick={hasActiveOrPending && isProcessing ? pauseQueue : startQueue}
+                  disabled={queue.length === 0 || (!hasActiveOrPending && queue.every(i => i.status === 'completed'))}
                   className="h-7 text-xs px-2.5 border-border/70"
-                  aria-label={isProcessing ? "Pause download queue" : "Start download queue"}
+                  aria-label={
+                    hasActiveOrPending
+                      ? (isProcessing ? "Pause download queue" : "Resume download queue")
+                      : "Start download queue"
+                  }
                 >
-                  {isProcessing ? (
+                  {hasActiveOrPending && isProcessing ? (
                     <><Pause className="mr-1.5 h-3 w-3 fill-current" /> Pause</>
+                  ) : hasActiveOrPending && !isProcessing ? (
+                    <><Play className="mr-1.5 h-3 w-3 fill-current" /> Resume</>
                   ) : (
                     <><Play className="mr-1.5 h-3 w-3 fill-current" /> Start</>
                   )}
@@ -933,20 +1030,31 @@ export function DashboardLayout() {
                 <Button 
                   variant="ghost" 
                   size="icon" 
-                  onClick={clearCompleted} 
+                  onClick={() => {
+                    const completedCount = queue.filter(i => i.status === 'completed').length;
+                    if (completedCount === 0) return;
+                    setDeleteConfirmation({ type: 'completed' });
+                    setDeleteFromStorage(true);
+                  }} 
+                  disabled={queue.filter(i => i.status === 'completed').length === 0}
                   title="Clear Completed" 
                   aria-label="Clear completed downloads"
-                  className="h-7 w-7 text-muted-foreground hover:text-emerald-500 transition-colors"
+                  className="h-7 w-7 text-muted-foreground hover:text-emerald-500 transition-colors disabled:opacity-30"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
                 <Button 
                   variant="ghost" 
                   size="icon" 
-                  onClick={clearAll} 
+                  onClick={() => {
+                    if (queue.length === 0) return;
+                    setDeleteConfirmation({ type: 'all' });
+                    setDeleteFromStorage(false);
+                  }} 
+                  disabled={queue.length === 0}
                   title="Clear All Tasks" 
                   aria-label="Clear all tasks"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive transition-colors"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-30"
                 >
                   <ListX className="h-3.5 w-3.5" />
                 </Button>
@@ -972,8 +1080,12 @@ export function DashboardLayout() {
                       key={item.id} 
                       item={item} 
                       isActive={item.status === 'downloading' || item.status === 'fetching_link'}
-                      onRemove={() => removeFromQueue(item.id)}
+                      onRemove={() => {
+                        setDeleteConfirmation({ type: 'single', item });
+                        setDeleteFromStorage(item.status === 'completed');
+                      }}
                       onRetry={() => retryItem(item.id)}
+                      onOpenFile={() => handleOpenFile(item)}
                       onOpenFolder={() => openDownloadDir(item.downloadDir || undefined)}
                       onOpenCookieSettings={() => {
                         setShowSettings(true);
@@ -1005,7 +1117,7 @@ export function DashboardLayout() {
                   </span>
                   <span>{queue.filter(i => i.status === 'pending').length} Pending</span>
                 </div>
-                {totalSpeed > 0 && (
+                {(activeDownloadingCount > 0 || totalSpeed > 0) && (
                   <span className="font-mono text-primary font-semibold">
                     Total: {formatSpeed(totalSpeed)}
                   </span>
@@ -1063,7 +1175,7 @@ export function DashboardLayout() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="settings-modal-title"
-            className="bg-background border border-border/80 rounded-2xl shadow-2xl w-full max-w-[580px] max-h-[92dvh] sm:max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden"
+            className="bg-background border border-border/80 rounded-2xl shadow-2xl w-full max-w-[580px] h-[580px] max-h-[92dvh] sm:max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
           >
             
             {/* Modal Header */}
@@ -1091,7 +1203,7 @@ export function DashboardLayout() {
                 aria-selected={settingsTab === 'general'}
                 onClick={() => setSettingsTab('general')}
                 className={cn(
-                  "py-2.5 px-2 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none shrink-0",
+                  "py-2.5 px-2 font-medium border-b-2 transition-colors duration-150 flex items-center gap-1.5 focus:outline-none shrink-0",
                   settingsTab === 'general' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -1104,7 +1216,7 @@ export function DashboardLayout() {
                 aria-selected={settingsTab === 'api'}
                 onClick={() => setSettingsTab('api')}
                 className={cn(
-                  "py-2.5 px-2 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none shrink-0",
+                  "py-2.5 px-2 font-medium border-b-2 transition-colors duration-150 flex items-center gap-1.5 focus:outline-none shrink-0",
                   settingsTab === 'api' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -1117,7 +1229,7 @@ export function DashboardLayout() {
                 aria-selected={settingsTab === 'cookie'}
                 onClick={() => setSettingsTab('cookie')}
                 className={cn(
-                  "py-2.5 px-2 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none shrink-0",
+                  "py-2.5 px-2 font-medium border-b-2 transition-colors duration-150 flex items-center gap-1.5 focus:outline-none shrink-0",
                   settingsTab === 'cookie' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -1130,7 +1242,7 @@ export function DashboardLayout() {
                 aria-selected={settingsTab === 'logs'}
                 onClick={() => setSettingsTab('logs')}
                 className={cn(
-                  "py-2.5 px-2 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none shrink-0",
+                  "py-2.5 px-2 font-medium border-b-2 transition-colors duration-150 flex items-center gap-1.5 focus:outline-none shrink-0",
                   settingsTab === 'logs' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -1143,7 +1255,7 @@ export function DashboardLayout() {
                 aria-selected={settingsTab === 'about'}
                 onClick={() => setSettingsTab('about')}
                 className={cn(
-                  "py-2.5 px-2 font-medium border-b-2 transition-all flex items-center gap-1.5 focus:outline-none shrink-0",
+                  "py-2.5 px-2 font-medium border-b-2 transition-colors duration-150 flex items-center gap-1.5 focus:outline-none shrink-0",
                   settingsTab === 'about' ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -1152,7 +1264,7 @@ export function DashboardLayout() {
             </div>
 
             {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+            <div ref={settingsBodyRef} className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
               
               {/* TAB 1: GENERAL */}
               {settingsTab === 'general' && (
@@ -1161,7 +1273,7 @@ export function DashboardLayout() {
                   id="panel-general" 
                   aria-labelledby="tab-general" 
                   tabIndex={0} 
-                  className="space-y-4 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
+                  className="space-y-4 focus:outline-none animate-in fade-in duration-150"
                 >
                   <div className="space-y-1.5">
                     <label htmlFor="settings-download-dir" className="font-medium text-foreground">Download Destination</label>
@@ -1170,7 +1282,7 @@ export function DashboardLayout() {
                         id="settings-download-dir"
                         value={downloadDir} 
                         onChange={e => setDownloadDir(e.target.value)} 
-                        placeholder="Default: Downloads/TeraBox"
+                        placeholder="Default: Downloads/Teralace"
                         className="flex-1 text-xs h-9 font-mono"
                       />
                       <Button 
@@ -1184,7 +1296,7 @@ export function DashboardLayout() {
                       </Button>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      Destination folder for downloaded files and parts.
+                      Destination folder for downloaded files and parts (Default: Downloads/Teralace).
                     </p>
                   </div>
 
@@ -1240,8 +1352,53 @@ export function DashboardLayout() {
                     </select>
                   </div>
 
-                  {/* Material You & Theme Theming */}
+                  {/* Theme Mode & Styling */}
                   <div className="space-y-3 pt-2 border-t border-border/40">
+                    <div className="space-y-1.5">
+                      <span className="font-medium text-foreground block text-xs">Visual Theme</span>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setTheme('light')}
+                          className={cn(
+                            "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-colors duration-150 hover:bg-accent/40",
+                            theme === 'light' ? "border-primary bg-primary/10 shadow-sm text-primary font-semibold" : "border-border/60 text-muted-foreground"
+                          )}
+                          title="Set Light Theme"
+                          aria-label="Set Light Theme"
+                        >
+                          <Sun className="h-4 w-4 mb-1 text-amber-500" />
+                          <span className="text-xs">Light</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTheme('dark')}
+                          className={cn(
+                            "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-colors duration-150 hover:bg-accent/40",
+                            theme === 'dark' ? "border-primary bg-primary/10 shadow-sm text-primary font-semibold" : "border-border/60 text-muted-foreground"
+                          )}
+                          title="Set Dark Theme"
+                          aria-label="Set Dark Theme"
+                        >
+                          <Moon className="h-4 w-4 mb-1 text-primary" />
+                          <span className="text-xs">Dark</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTheme('system')}
+                          className={cn(
+                            "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-colors duration-150 hover:bg-accent/40",
+                            theme === 'system' ? "border-primary bg-primary/10 shadow-sm text-primary font-semibold" : "border-border/60 text-muted-foreground"
+                          )}
+                          title="Set System Default Theme"
+                          aria-label="Set System Default Theme"
+                        >
+                          <Monitor className="h-4 w-4 mb-1 text-muted-foreground" />
+                          <span className="text-xs">System</span>
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="flex items-center justify-between p-3 rounded-xl border border-border/70 bg-card/60">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
@@ -1309,6 +1466,7 @@ export function DashboardLayout() {
                         ))}
                       </div>
                     </div>
+
                   </div>
                 </div>
               )}
@@ -1320,7 +1478,7 @@ export function DashboardLayout() {
                   id="panel-api" 
                   aria-labelledby="tab-api" 
                   tabIndex={0} 
-                  className="space-y-4 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
+                  className="space-y-4 focus:outline-none animate-in fade-in duration-150"
                 >
                   <div className="p-3 bg-muted/30 rounded-xl text-xs space-y-1 border border-border/60">
                     <p className="font-semibold text-foreground flex items-center gap-1.5">
@@ -1357,7 +1515,7 @@ export function DashboardLayout() {
                         <div className="leading-relaxed">
                           <p className="font-semibold text-foreground">Direct Scraper Active (Yellow Mode)</p>
                           <p className="text-[11px] text-muted-foreground mt-0.5">
-                            Remote API endpoints are currently offline or disabled. TeraLace is actively resolving links using its built-in <strong>Direct Scraper</strong> ({teraboxCookie ? "authenticated with session cookie" : "guest mode"}).
+                            Remote API endpoints are currently offline or disabled. Teralace is actively resolving links using its built-in <strong>Direct Scraper</strong> ({teraboxCookie ? "authenticated with session cookie" : "guest mode"}).
                           </p>
                         </div>
                       </div>
@@ -1427,31 +1585,99 @@ export function DashboardLayout() {
                     </div>
                   </div>
 
-                  {/* Self-Host Cloudflare Worker Resolver Banner */}
-                  <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl space-y-1.5 text-xs">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 font-semibold text-foreground">
-                        <Server className="h-3.5 w-3.5 text-primary" /> Self-Host Your Cloudflare Worker
+                  {/* Self-Host Cloudflare Worker Resolver Card */}
+                  <div className="p-3.5 bg-gradient-to-r from-primary/10 via-primary/5 to-muted/20 border border-primary/20 rounded-xl space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 font-semibold text-foreground text-xs">
+                        <Server className="h-4 w-4 text-primary shrink-0" />
+                        <span>Self-Host Cloudflare Worker Resolver</span>
                       </div>
-                      <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">100% Free & Private</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-7 text-xs px-2.5 font-medium shrink-0"
+                          onClick={() => {
+                            try {
+                              navigator.clipboard.writeText(workerScript);
+                              setCopiedWorkerScript(true);
+                              setTimeout(() => setCopiedWorkerScript(false), 3000);
+                            } catch (e) {
+                              console.error("Clipboard write error:", e);
+                            }
+                          }}
+                        >
+                          {copiedWorkerScript ? (
+                            <>
+                              <Check className="h-3.5 w-3.5 mr-1 text-emerald-400" />
+                              Copied worker.js!
+                            </>
+                          ) : (
+                            <>
+                              <Code2 className="h-3.5 w-3.5 mr-1 text-primary" />
+                              Copy worker.js Script
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground shrink-0"
+                          onClick={() => setShowWorkerGuide(!showWorkerGuide)}
+                        >
+                          <span>{showWorkerGuide ? "Hide Guide" : "Setup Guide"}</span>
+                          {showWorkerGuide ? <ChevronUp className="h-3.5 w-3.5 ml-1" /> : <ChevronDown className="h-3.5 w-3.5 ml-1" />}
+                        </Button>
+                      </div>
                     </div>
+
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Deploy our ready-to-use Cloudflare Worker in under 2 minutes for a dedicated, uninterrupted private resolver.
+                      Deploy our ready-to-use Cloudflare Worker for a private, uninterrupted TeraBox resolver (100% free with 100,000 requests/day).
                     </p>
-                    <div className="flex items-center gap-2 pt-0.5">
-                      <a 
-                        href="https://dash.cloudflare.com/" 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-medium"
-                      >
-                        <ExternalLink className="h-3 w-3" /> Cloudflare Dashboard
-                      </a>
-                      <span className="text-muted-foreground text-[10px]">•</span>
-                      <span className="text-[11px] text-muted-foreground font-mono">
-                        See cloudflare-worker/README.md
-                      </span>
-                    </div>
+
+                    {showWorkerGuide && (
+                      <div className="space-y-2.5 pt-2 border-t border-border/50 text-[11px] animate-in fade-in duration-200">
+                        <div className="space-y-2 bg-background/60 p-3 rounded-lg border border-border/50">
+                          <div className="flex items-start gap-2">
+                            <span className="flex items-center justify-center h-4 w-4 rounded-full bg-primary/10 text-primary font-bold text-[10px] shrink-0 mt-0.5">1</span>
+                            <div>
+                              <strong className="text-foreground">Create Worker on Cloudflare:</strong>
+                              <p className="text-muted-foreground leading-normal mt-0.5">
+                                Log in to <a href="https://dash.cloudflare.com/" target="_blank" rel="noreferrer" className="text-primary hover:underline font-medium inline-flex items-center gap-0.5">dash.cloudflare.com <ExternalLink className="h-2.5 w-2.5" /></a>. Navigate to <strong>Compute (Workers)</strong> &rarr; <strong>Workers & Pages</strong> &rarr; <strong>Create Application</strong> &rarr; <strong>Create Worker</strong>. Name it <code className="font-mono text-primary">teralace-resolver</code> and tap <strong>Deploy</strong>.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-start gap-2">
+                            <span className="flex items-center justify-center h-4 w-4 rounded-full bg-primary/10 text-primary font-bold text-[10px] shrink-0 mt-0.5">2</span>
+                            <div>
+                              <strong className="text-foreground">Paste worker.js Script:</strong>
+                              <p className="text-muted-foreground leading-normal mt-0.5">
+                                In Cloudflare, tap <strong>Edit Code</strong> (Quick Edit). Tap <strong>Copy worker.js Script</strong> above in Teralace, paste it into the editor (replacing all existing sample code), and tap <strong>Deploy</strong> in the top-right.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-start gap-2">
+                            <span className="flex items-center justify-center h-4 w-4 rounded-full bg-primary/10 text-primary font-bold text-[10px] shrink-0 mt-0.5">3</span>
+                            <div>
+                              <strong className="text-foreground">Connect to Teralace:</strong>
+                              <p className="text-muted-foreground leading-normal mt-0.5">
+                                Copy your worker URL (e.g. <code className="font-mono text-primary font-semibold">https://teralace-resolver.YOUR_SUBDOMAIN.workers.dev/</code>). Paste it into the <strong>Base URL</strong> input below, enter a provider name (e.g. <code className="font-mono text-foreground font-semibold">My Cloudflare Worker</code>), and tap <strong>+ Add</strong>!
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 bg-muted/40 rounded-lg text-[10.5px] text-muted-foreground space-y-1 border border-border/40">
+                          <p className="font-semibold text-foreground">💡 Optional Settings (Worker Settings &rarr; Variables and Secrets):</p>
+                          <ul className="list-disc list-inside space-y-0.5 pl-1 leading-relaxed">
+                            <li><code className="font-mono text-primary">AUTH_TOKEN</code>: Password-protect your worker (enter the same passphrase in Teralace's <em>Auth Token</em> field below).</li>
+                            <li><code className="font-mono text-primary">TERABOX_COOKIE</code>: Pre-configure your <code className="font-mono text-primary">ndus</code> session cookie on Cloudflare so all queries automatically authenticate.</li>
+                          </ul>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Add New Endpoint */}
@@ -1486,6 +1712,7 @@ export function DashboardLayout() {
                         <Plus className="h-3.5 w-3.5 mr-1" /> Add
                       </Button>
                     </div>
+
                   </div>
                 </div>
               )}
@@ -1497,7 +1724,7 @@ export function DashboardLayout() {
                   id="panel-cookie" 
                   aria-labelledby="tab-cookie" 
                   tabIndex={0} 
-                  className="space-y-3.5 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
+                  className="space-y-3.5 focus:outline-none animate-in fade-in duration-150"
                 >
                   {/* Auto-Captured Success Notification */}
                   {cookieCapturedSuccess && (
@@ -1521,7 +1748,7 @@ export function DashboardLayout() {
                       </span>
                     </div>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Opens a secure login window. Once signed in via Google, Email, or Phone, TeraLace automatically extracts your session token and saves it without needing DevTools.
+                      Opens a secure login window. Once signed in via Google, Email, or Phone, Teralace automatically extracts your session token and saves it without needing DevTools.
                     </p>
                     <Button 
                       onClick={handleOpenLogin} 
@@ -1594,27 +1821,85 @@ export function DashboardLayout() {
                   </div>
 
                   {/* Android & Mobile Extraction Helper */}
-                  <div className="p-3 bg-muted/30 rounded-xl text-[11px] text-muted-foreground space-y-2 border border-border/60">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-foreground">Android & Mobile Extraction Helper:</p>
+                  <div className="p-3.5 bg-muted/30 rounded-xl text-xs text-muted-foreground space-y-3 border border-border/60">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 font-semibold text-foreground text-xs">
+                        <Smartphone className="h-4 w-4 text-primary shrink-0" />
+                        <span>Android & Mobile Extraction Guide</span>
+                      </div>
                       <Button
-                        variant="ghost"
+                        variant="secondary"
                         size="sm"
-                        className="h-6 text-[10px] px-2 text-primary hover:text-primary"
+                        className="h-7 text-xs px-2.5 font-medium shrink-0"
                         onClick={() => {
-                          const snippet = `javascript:(function(){var m=document.cookie.match(/ndus=([^;]+)/);if(m){navigator.clipboard.writeText(m[1]);alert('ndus copied to clipboard!')}else{alert('ndus cookie not found, please sign in first.')}})();`;
+                          const snippet = `javascript:(function(){try{var o=document.getElementById('tl-box');if(o)o.remove();var f=function(){var m=document.cookie.match(/(?:^|;\\s*)ndus=([^;]+)/);if(m&&m[1])return m[1].trim();try{for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i),v=localStorage.getItem(k);if(k==='ndus'&&v)return v.trim();if(v&&v.indexOf('ndus')!==-1){var lm=v.match(/ndus["']?\\s*[:=]\\s*["']?([^"',;}\\s]+)/);if(lm&&lm[1])return lm[1].trim();}}}catch(e){}try{for(var j=0;j<sessionStorage.length;j++){var sk=sessionStorage.key(j),sv=sessionStorage.getItem(sk);if(sk==='ndus'&&sv)return sv.trim();if(sv&&sv.indexOf('ndus')!==-1){var sm=sv.match(/ndus["']?\\s*[:=]\\s*["']?([^"',;}\\s]+)/);if(sm&&sm[1])return sm[1].trim();}}}catch(e){}return null;};var t=f(),b=document.createElement('div');b.id='tl-box';b.style.cssText='position:fixed;top:16px;left:16px;right:16px;z-index:2147483647;background:#0f172a;color:#f8fafc;padding:16px;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,0.6);font-family:sans-serif;font-size:13px;border:1px solid #334155;';if(t){var c=false;try{var a=document.createElement('textarea');a.value=t;a.style.position='fixed';a.style.opacity='0';document.body.appendChild(a);a.select();c=document.execCommand('copy');document.body.removeChild(a);}catch(e){}b.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><strong style="color:#38bdf8;font-size:14px;">TeraBox ndus Found!</strong><button id="tl-c" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">✕</button></div><p style="margin:0 0 8px;color:#94a3b8;font-size:11px;">'+(c?'Copied to clipboard automatically!':'Tap to copy:')+'</p><input id="tl-v" type="text" readonly value="'+t+'" style="width:100%;box-sizing:border-box;padding:8px;background:#1e293b;border:1px solid #475569;border-radius:6px;color:#f8fafc;font-family:monospace;font-size:11px;margin-bottom:10px;"><div style="display:flex;gap:8px;"><button id="tl-b" style="flex:1;padding:8px;background:#0284c7;color:#fff;border:none;border-radius:6px;font-weight:600;font-size:12px;cursor:pointer;">'+(c?'Copied! Tap to Copy Again':'Copy ndus Token')+'</button><button id="tl-d" style="padding:8px 12px;background:#334155;color:#f8fafc;border:none;border-radius:6px;font-size:12px;cursor:pointer;">Done</button></div>';}else{b.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><strong style="color:#f87171;font-size:14px;">ndus Cookie Protected (HttpOnly)</strong><button id="tl-c" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">✕</button></div><p style="margin:0 0 10px;color:#cbd5e1;font-size:11px;line-height:1.5;">TeraBox marks your session cookie as <strong style="color:#f87171;">HttpOnly</strong> on this domain, so browsers block JavaScript from reading it.<br><br>👉 <strong>Guaranteed Android Method:</strong><br>1. Open Play Store & install <strong>Kiwi Browser</strong>.<br>2. In Kiwi, install the <strong>Cookie-Editor</strong> Chrome extension.<br>3. Log in to TeraBox & copy the <code>ndus</code> cookie from Cookie-Editor.</p><button id="tl-d" style="width:100%;padding:8px;background:#334155;color:#f8fafc;border:none;border-radius:6px;font-size:12px;cursor:pointer;">Close</button>';}document.body.appendChild(b);var cl=function(){b.remove();};var cb=document.getElementById('tl-c'),db=document.getElementById('tl-d'),bb=document.getElementById('tl-b'),vi=document.getElementById('tl-v');if(cb)cb.onclick=cl;if(db)db.onclick=cl;if(vi)vi.onclick=function(){vi.select();};if(bb&&t){bb.onclick=function(){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t);}else if(vi){vi.select();document.execCommand('copy');}bb.innerText='Copied to Clipboard!';bb.style.background='#059669';};}}catch(err){alert('Teralace Helper Error: '+err.message);}})();void(0);`;
                           navigator.clipboard.writeText(snippet);
                           setCopiedBookmarklet(true);
                           setTimeout(() => setCopiedBookmarklet(false), 3000);
                         }}
                       >
-                        {copiedBookmarklet ? <Check className="h-3 w-3 mr-1 text-emerald-400" /> : <Clipboard className="h-3 w-3 mr-1" />}
+                        {copiedBookmarklet ? <Check className="h-3.5 w-3.5 mr-1 text-emerald-400" /> : <Bookmark className="h-3.5 w-3.5 mr-1 text-primary" />}
                         {copiedBookmarklet ? "Copied Script!" : "Copy Helper Bookmarklet"}
                       </Button>
                     </div>
-                    <p>
-                      On Android, open <strong>terabox.app</strong> in Chrome or Kiwi Browser. You can paste the helper bookmarklet into the address bar to copy your <code className="font-mono text-primary font-bold">ndus</code> token directly to clipboard, then tap <strong>Paste</strong> above.
-                    </p>
+
+                    {/* Method 1: Guaranteed (Kiwi Browser) */}
+                    <div className="p-2.5 rounded-lg bg-primary/10 border border-primary/20 space-y-1.5">
+                      <div className="flex items-center gap-1.5 font-semibold text-primary text-[11px]">
+                        <span>⭐ Method 1: Kiwi Browser + Cookie-Editor (100% Guaranteed on Android)</span>
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        TeraBox sets the <code className="font-mono text-primary font-bold">ndus</code> session cookie as <strong className="text-foreground">HttpOnly</strong> on most domains, which mobile browsers strictly hide from JavaScript. Because <strong>Kiwi Browser</strong> supports desktop Chrome extensions, it can read HttpOnly cookies without restrictions:
+                      </p>
+                      <ol className="list-decimal list-inside text-[11px] space-y-0.5 text-muted-foreground pl-1">
+                        <li>Install <strong>Kiwi Browser</strong> from Google Play Store.</li>
+                        <li>In Kiwi, visit Chrome Web Store and install the <strong>Cookie-Editor</strong> extension.</li>
+                        <li>Open <strong>terabox.app</strong>, sign in to your account, and tap <kbd className="px-1 py-0.2 rounded bg-muted font-sans text-[10px]">⋮</kbd> &rarr; <strong>Cookie-Editor</strong>.</li>
+                        <li>Tap the <code className="font-mono text-primary font-bold">ndus</code> row, copy its value, and tap <strong>Paste</strong> above!</li>
+                      </ol>
+                    </div>
+
+                    {/* Method 2: Chrome Bookmarklet Overlay */}
+                    <div className="space-y-2 text-[11px] bg-background/60 p-2.5 rounded-lg border border-border/50">
+                      <div className="font-semibold text-foreground text-[11px] flex items-center justify-between">
+                        <span>Method 2: Chrome Mobile Bookmarklet (In-Page Overlay)</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground leading-normal">
+                        To run the script in standard Chrome Mobile without it being stripped, add it as a bookmark:
+                      </p>
+
+                      <div className="space-y-1.5 pt-1">
+                        <div className="flex items-start gap-2">
+                          <span className="flex items-center justify-center h-4 w-4 rounded-full bg-primary/10 text-primary font-bold text-[10px] shrink-0 mt-0.5">1</span>
+                          <div>
+                            <strong className="text-foreground">Save Bookmark:</strong>
+                            <p className="text-muted-foreground leading-normal">
+                              Tap <strong>Copy Helper Bookmarklet</strong> above. In Chrome Mobile, bookmark any page (<kbd className="px-1 py-0.2 rounded bg-muted font-sans text-[10px]">⋮</kbd> &rarr; <kbd className="px-1 py-0.2 rounded bg-muted font-sans text-[10px]">★</kbd>), tap <strong>Edit</strong>, change the name to <code className="font-mono text-primary font-bold">ndus</code>, clear the URL field, paste the copied script, and save.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-start gap-2">
+                          <span className="flex items-center justify-center h-4 w-4 rounded-full bg-primary/10 text-primary font-bold text-[10px] shrink-0 mt-0.5">2</span>
+                          <div>
+                            <strong className="text-foreground">Trigger on TeraBox:</strong>
+                            <p className="text-muted-foreground leading-normal">
+                              Open <strong>terabox.app</strong> in Chrome and log in. Tap the address bar, type <code className="font-mono text-primary font-bold">ndus</code>, and tap the autocomplete suggestion with the <strong className="text-foreground">★ Star / Bookmark</strong> icon.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-start gap-2">
+                          <span className="flex items-center justify-center h-4 w-4 rounded-full bg-primary/10 text-primary font-bold text-[10px] shrink-0 mt-0.5">3</span>
+                          <div>
+                            <strong className="text-foreground">In-Page Floating Card:</strong>
+                            <p className="text-muted-foreground leading-normal">
+                              An interactive floating card will appear directly on top of the TeraBox page displaying your token with a 1-tap copy button. If your domain enforces HttpOnly, the card will inform you to use Method 1.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1626,7 +1911,7 @@ export function DashboardLayout() {
                   id="panel-logs" 
                   aria-labelledby="tab-logs" 
                   tabIndex={0} 
-                  className="space-y-4 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
+                  className="space-y-4 focus:outline-none animate-in fade-in duration-150"
                 >
                   <LogViewer />
                 </div>
@@ -1639,20 +1924,20 @@ export function DashboardLayout() {
                   id="panel-about" 
                   aria-labelledby="tab-about" 
                   tabIndex={0} 
-                  className="space-y-4 py-1 focus:outline-none animate-in fade-in-50 duration-200 slide-in-from-bottom-1"
+                  className="space-y-4 py-1 focus:outline-none animate-in fade-in duration-150"
                 >
                   <div className="flex items-center gap-3 p-3 bg-muted/20 border border-border/60 rounded-xl">
-                    <img src="/logo.svg" alt="TeraLace" className="w-10 h-10 object-contain drop-shadow-sm" />
+                    <img src="/logo.svg" alt="Teralace" className="w-10 h-10 object-contain drop-shadow-sm" />
                     <div>
-                      <h3 className="font-bold text-sm text-foreground">TeraLace</h3>
+                      <h3 className="font-bold text-sm text-foreground">Teralace</h3>
                       <p className="text-[11px] text-muted-foreground">Fast, resilient multiplatform TeraBox downloader</p>
-                      <p className="text-[10px] text-primary font-mono font-medium mt-0.5">Version 1.1.2 (GPL-3.0)</p>
+                      <p className="text-[10px] text-primary font-mono font-medium mt-0.5">Version {currentAppVersion} (GPL-3.0)</p>
                     </div>
                   </div>
 
-                  <div className="space-y-2 text-[11px] text-muted-foreground leading-relaxed">
+                  <div className="space-y-3 text-[11px] text-muted-foreground leading-relaxed">
                     <p>Built with <strong>Tauri v2</strong>, <strong>Rust</strong>, and <strong>React 18</strong> with an embedded multi-stream HTTP range downloader engine.</p>
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="flex items-center gap-2 pt-0.5">
                       <a 
                         href="https://github.com/LoLyeah/teralace" 
                         target="_blank" 
@@ -1671,6 +1956,80 @@ export function DashboardLayout() {
                         Release Notes <ExternalLink className="h-3 w-3" />
                       </a>
                     </div>
+
+                    {/* Manual Update Checker */}
+                    <div className="p-3 bg-muted/30 border border-border/70 rounded-xl space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                            <Sparkles className="h-3.5 w-3.5 text-primary" /> Update Checker
+                          </h4>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Check for newly published releases on GitHub.
+                          </p>
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={handleCheckForUpdates}
+                          disabled={isCheckingUpdate}
+                          className="h-7 text-xs px-2.5 gap-1.5 border-border/70 shrink-0"
+                        >
+                          {isCheckingUpdate ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                          {isCheckingUpdate ? "Checking..." : "Check for Updates"}
+                        </Button>
+                      </div>
+
+                      {updateResult && (
+                        <div className={cn(
+                          "p-2.5 rounded-lg border text-xs animate-in fade-in duration-200",
+                          updateResult.update_available 
+                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                            : "bg-primary/5 border-primary/20 text-foreground"
+                        )}>
+                          {updateResult.update_available ? (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                                  <CheckCircle2 className="h-4 w-4 shrink-0" /> Update available: v{updateResult.latest_version}
+                                </span>
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  className="h-6 text-[10px] px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium gap-1"
+                                  onClick={() => {
+                                    openUrl(updateResult.release_url).catch(() => window.open(updateResult.release_url, '_blank'));
+                                  }}
+                                >
+                                  View Release <ExternalLink className="h-2.5 w-2.5" />
+                                </Button>
+                              </div>
+                              {updateResult.release_name && (
+                                <p className="text-[11px] font-medium text-foreground">{updateResult.release_name}</p>
+                              )}
+                              {updateResult.release_notes && (
+                                <p className="text-[10px] text-muted-foreground line-clamp-3 whitespace-pre-line font-mono bg-background/50 p-2 rounded">
+                                  {updateResult.release_notes}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                              <span>You are running the latest version of Teralace (v{updateResult.current_version}).</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {updateError && (
+                        <div className="p-2 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive text-xs flex items-center gap-2 animate-in fade-in duration-200">
+                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">Failed to check updates: {updateError}</span>
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 </div>
               )}
@@ -1685,6 +2044,80 @@ export function DashboardLayout() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div 
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-dialog-title"
+            className="bg-card border border-border/80 rounded-2xl p-4 sm:p-5 max-w-sm sm:max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-150 space-y-4"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-destructive/15 text-destructive flex items-center justify-center shrink-0">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <h3 id="delete-dialog-title" className="font-bold text-sm text-foreground">
+                  {deleteConfirmation.type === 'single' ? 'Delete Download Task' :
+                   deleteConfirmation.type === 'completed' ? 'Clear Completed Downloads' :
+                   'Clear All Queue Tasks'}
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                  {deleteConfirmation.type === 'single' ? deleteConfirmation.item?.file.name :
+                   deleteConfirmation.type === 'completed' ? `${queue.filter(i => i.status === 'completed').length} completed item(s)` :
+                   'All tasks in the download queue'}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {deleteConfirmation.type === 'single' 
+                ? 'Are you sure you want to remove this item from the download queue?'
+                : deleteConfirmation.type === 'completed'
+                ? 'Are you sure you want to clear all completed downloads from the queue?'
+                : 'Are you sure you want to stop and remove all tasks from the download queue?'}
+            </p>
+
+            {(deleteConfirmation.type === 'single' || deleteConfirmation.type === 'completed') && (
+              <label className="flex items-center gap-2 p-2.5 rounded-lg border border-border/60 bg-muted/20 cursor-pointer text-xs select-none hover:bg-muted/30 transition-colors">
+                <input 
+                  type="checkbox"
+                  checked={deleteFromStorage}
+                  onChange={e => setDeleteFromStorage(e.target.checked)}
+                  className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                />
+                <span className="font-medium text-foreground">
+                  Also permanently delete downloaded file(s) from device storage
+                </span>
+              </label>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/50">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="h-8 text-xs px-3.5" 
+                onClick={() => setDeleteConfirmation(null)}
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button 
+                variant="destructive" 
+                size="sm" 
+                className="h-8 text-xs px-4 gap-1.5"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1694,6 +2127,7 @@ function QueueItemRow({
   isActive, 
   onRemove,
   onRetry,
+  onOpenFile,
   onOpenFolder,
   onPreview,
   onOpenCookieSettings
@@ -1702,6 +2136,7 @@ function QueueItemRow({
   isActive: boolean, 
   onRemove: () => void,
   onRetry?: () => void,
+  onOpenFile?: () => void,
   onOpenFolder?: () => void,
   onPreview?: () => void,
   onOpenCookieSettings?: () => void
@@ -1721,6 +2156,22 @@ function QueueItemRow({
             {item.file.name}
           </span>
           <div className="flex items-center gap-1 shrink-0">
+            {item.status === 'completed' && onOpenFile && (
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-7 w-7 sm:h-6 sm:w-6 text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenFile();
+                }}
+                title={isVideo ? "Play / Open File" : "Open File"}
+                aria-label={`Open file ${item.file.name}`}
+              >
+                {isVideo ? <Play className="h-3.5 w-3.5 fill-current" /> : <ExternalLink className="h-3.5 w-3.5" />}
+              </Button>
+            )}
+
             {item.status === 'completed' && onOpenFolder && (
               <Button 
                 variant="ghost" 
@@ -1779,21 +2230,22 @@ function QueueItemRow({
               {getStatusBadgeText(item)}
             </span>
 
-            {item.status !== 'completed' && (
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-7 w-7 sm:h-6 sm:w-6 text-muted-foreground hover:text-destructive transition-colors ml-0.5"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove();
-                }}
-                title="Cancel Task"
-                aria-label={`Cancel download task for ${item.file.name}`}
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            )}
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className={cn(
+                "h-7 w-7 sm:h-6 sm:w-6 text-muted-foreground transition-colors ml-0.5",
+                item.status === 'completed' ? "hover:text-destructive hover:bg-destructive/10" : "hover:text-destructive"
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+              title={item.status === 'completed' ? "Delete task and file" : "Cancel Task"}
+              aria-label={`${item.status === 'completed' ? 'Delete task and file' : 'Cancel download task'} for ${item.file.name}`}
+            >
+              {item.status === 'completed' ? <Trash2 className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+            </Button>
           </div>
         </div>
         
@@ -1822,18 +2274,37 @@ function QueueItemRow({
           <span>{formatBytes(item.downloaded)} / {formatBytes(item.total)}</span>
           
           <div className="flex items-center gap-2">
-            {isActive && item.speed > 0 && (
+            {isActive && (
               <>
-                <span className="text-[10px] text-muted-foreground/80">
-                  ETA: {formatEta(item.total, item.downloaded, item.speed)}
-                </span>
-                <span className="text-primary font-semibold">
+                {item.speed > 0 && (
+                  <span className="text-[10px] text-muted-foreground/80">
+                    ETA: {formatEta(item.total, item.downloaded, item.speed)}
+                  </span>
+                )}
+                <span className="text-primary font-semibold min-w-[55px] text-right">
                   {formatSpeed(item.speed)}
                 </span>
               </>
             )}
           </div>
         </div>
+
+        {/* Completed destination path reminder */}
+        {item.status === 'completed' && (
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mt-1 truncate">
+            <span>Saved to:</span>
+            <span 
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onOpenFolder) onOpenFolder();
+              }}
+              className="text-foreground/90 font-mono underline hover:text-primary cursor-pointer truncate max-w-[280px]"
+              title="Click to open destination folder"
+            >
+              {item.filePath ? item.filePath : (item.downloadDir ? `${item.downloadDir}/${item.file.name}` : `Download/Teralace/${item.file.name}`)}
+            </span>
+          </div>
+        )}
         
         {/* Error Detail Message */}
         {item.error && (

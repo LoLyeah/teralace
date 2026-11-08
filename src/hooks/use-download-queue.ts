@@ -25,6 +25,7 @@ export interface QueueItem {
   error?: string;
   params: DownloadParams;
   downloadDir?: string;
+  filePath?: string;
 }
 
 export function useDownloadQueue() {
@@ -126,7 +127,14 @@ export function useDownloadQueue() {
 
     const currentQueue = queue;
     const activeCount = currentQueue.filter(i => i.status === 'downloading' || i.status === 'fetching_link').length;
+    const pendingCount = currentQueue.filter(i => i.status === 'pending').length;
     
+    // Auto-reset isProcessing when all items finish or nothing is pending/active
+    if (activeCount === 0 && pendingCount === 0) {
+      setIsProcessing(false);
+      return;
+    }
+
     if (activeCount < maxConcurrent) {
       const nextItem = currentQueue.find(i => i.status === 'pending');
       if (nextItem) {
@@ -153,14 +161,21 @@ export function useDownloadQueue() {
               speed: status.speed,
               downloaded: status.downloaded,
               total: status.total_size,
+              filePath: status.file_path || item.filePath,
             });
 
             if (status.status === "complete") {
-              updateItem(item.id, { status: "completed", progress: 100 });
+              updateItem(item.id, { 
+                status: "completed", 
+                progress: 100, 
+                speed: 0,
+                filePath: status.file_path || item.filePath 
+              });
             } else if (status.status === "error" || status.status === "removed") {
               updateItem(item.id, { 
                 status: status.status === "error" ? "error" : "cancelled", 
-                error: status.error_message || (status.status === "removed" ? "Cancelled" : "Download failed") 
+                error: status.error_message || (status.status === "removed" ? "Cancelled" : "Download failed"),
+                speed: 0,
               });
             }
           } catch (e) {

@@ -51,9 +51,20 @@ export interface DownloadInfo {
   progress: number;
   status: "active" | "waiting" | "paused" | "complete" | "error" | "removed";
   error_message: string | null;
+  file_path?: string | null;
 }
 
 export type DownloadStatus = DownloadInfo["status"];
+
+export interface UpdateCheckResult {
+  update_available: boolean;
+  current_version: string;
+  latest_version: string;
+  release_name: string | null;
+  release_notes: string | null;
+  release_url: string;
+  published_at: string | null;
+}
 
 export interface ApiEndpointConfig {
   id: string;

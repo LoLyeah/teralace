@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 const DEFAULT_USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
+pub const TERABOX_CLIENT_USER_AGENT: &str = "netdisk;P2SP;2.2.60.2";
 
 pub struct TeraboxApi {
     client: Client,
@@ -614,7 +615,7 @@ impl TeraboxApi {
             let mut headers = HeaderMap::new();
             headers.insert(
                 USER_AGENT,
-                HeaderValue::from_static(DEFAULT_USER_AGENT),
+                HeaderValue::from_static(TERABOX_CLIENT_USER_AGENT),
             );
             headers.insert(REFERER, HeaderValue::from_str(&format!("https://{}/", host)).unwrap());
             headers.insert(ORIGIN, HeaderValue::from_str(&format!("https://{}", host)).unwrap());
@@ -1101,7 +1102,7 @@ impl TeraboxApi {
             let mut headers = HeaderMap::new();
             headers.insert(
                 USER_AGENT,
-                HeaderValue::from_static(DEFAULT_USER_AGENT),
+                HeaderValue::from_static(TERABOX_CLIENT_USER_AGENT),
             );
             headers.insert(REFERER, HeaderValue::from_str(referer).unwrap());
             headers.insert(ORIGIN, HeaderValue::from_str(&referer[..referer.len() - 1]).unwrap());
@@ -1286,8 +1287,8 @@ impl TeraboxApi {
                     .client
                     .get(&dl)
                     .header(reqwest::header::RANGE, "bytes=0-0")
-                    .header(reqwest::header::USER_AGENT, DEFAULT_USER_AGENT)
-                    .timeout(std::time::Duration::from_millis(3000));
+                    .header(reqwest::header::USER_AGENT, TERABOX_CLIENT_USER_AGENT)
+                    .timeout(std::time::Duration::from_millis(5000));
 
                 if let Some(cookie) = user_cookie {
                     let cookie_str = cookie.trim().trim_matches('"').trim_matches('\'').trim();

@@ -47,7 +47,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             #[cfg(target_os = "android")]
-            download_dir: "/storage/emulated/0/Download/TeraBox".to_string(),
+            download_dir: "/storage/emulated/0/Download/Teralace".to_string(),
             #[cfg(not(target_os = "android"))]
             download_dir: "downloads".to_string(),
             max_connections: 16,

@@ -37,6 +37,7 @@ type ThemeProviderState = {
   setTheme: (theme: Theme) => void
   setPalette: (palette: ThemePalette) => void
   setMaterialYou: (enabled: boolean) => void
+  toggleTheme: () => void
 }
 
 const initialState: ThemeProviderState = {
@@ -46,6 +47,7 @@ const initialState: ThemeProviderState = {
   setTheme: () => null,
   setPalette: () => null,
   setMaterialYou: () => null,
+  toggleTheme: () => null,
 }
 
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
@@ -77,17 +79,33 @@ export function ThemeProvider({
   useEffect(() => {
     const root = window.document.documentElement
 
-    root.classList.remove("light", "dark")
+    const applyTheme = (t: Theme) => {
+      root.classList.remove("light", "dark")
+      let resolved: "light" | "dark"
 
-    if (theme === "system") {
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
-        .matches
-        ? "dark"
-        : "light"
+      if (t === "system") {
+        const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+        resolved = prefersDark ? "dark" : "light"
+      } else {
+        resolved = t
+      }
 
-      root.classList.add(systemTheme)
-    } else {
-      root.classList.add(theme)
+      root.classList.add(resolved)
+      root.style.colorScheme = resolved
+    }
+
+    applyTheme(theme)
+
+    if (theme === "system" && typeof window !== "undefined" && window.matchMedia) {
+      const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
+      const handler = () => applyTheme("system")
+      if (mediaQuery.addEventListener) {
+        mediaQuery.addEventListener("change", handler)
+        return () => mediaQuery.removeEventListener("change", handler)
+      } else if ((mediaQuery as any).addListener) {
+        (mediaQuery as any).addListener(handler)
+        return () => (mediaQuery as any).removeListener(handler)
+      }
     }
   }, [theme])
 
@@ -111,6 +129,13 @@ export function ThemeProvider({
     }
   }, [materialYou])
 
+  const toggleTheme = () => {
+    const currentIsDark = window.document.documentElement.classList.contains("dark")
+    const nextTheme: Theme = currentIsDark ? "light" : "dark"
+    localStorage.setItem(storageKey, nextTheme)
+    setTheme(nextTheme)
+  }
+
   const value = {
     theme,
     palette,
@@ -127,6 +152,7 @@ export function ThemeProvider({
       localStorage.setItem(materialYouStorageKey, String(enabled))
       setMaterialYouState(enabled)
     },
+    toggleTheme,
   }
 
   return (

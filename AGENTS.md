@@ -369,7 +369,7 @@ npm run tauri build
 # Output location:
 # - Windows: src-tauri/target/release/trauso.exe
 # - macOS: src-tauri/target/release/Trauso.app
-# - Linux: src-tauri/target/release/trauso
+# - Linux: src-tauri/target/release/bundle/appimage/Teralace_*_amd64.AppImage
 ```
 
 ### 4. Testing Before Commit

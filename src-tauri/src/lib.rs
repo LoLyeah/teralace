@@ -206,7 +206,7 @@ async fn open_terabox_login(handle: tauri::AppHandle) -> Result<String, String> 
 
         let handle_for_nav = h.clone();
         let builder = WebviewWindowBuilder::new(&h, "terabox_login", WebviewUrl::External(login_url))
-            .title("Sign In to TeraBox - TeraLace Auto-Capture")
+            .title("Sign In to TeraBox - Teralace Auto-Capture")
             .inner_size(840.0, 720.0)
             .center()
             .resizable(true)
@@ -292,7 +292,7 @@ async fn add_download(
     } else {
         #[cfg(target_os = "android")]
         {
-            // On Android, verify settings path is an absolute Android path, otherwise fall back to public Download/TeraBox
+            // On Android, verify settings path is an absolute Android path, otherwise fall back to public Download/Teralace
             if !settings.download_dir.trim().is_empty() && settings.download_dir.starts_with('/') {
                 Some(settings.download_dir.clone())
             } else {
@@ -301,7 +301,7 @@ async fn add_download(
                     .path()
                     .download_dir()
                     .unwrap_or_else(|_| PathBuf::from("/storage/emulated/0/Download"))
-                    .join("TeraBox");
+                    .join("Teralace");
                 Some(p.to_string_lossy().to_string())
             }
         }
@@ -410,7 +410,152 @@ async fn open_download_dir(handle: tauri::AppHandle, path: Option<String>) -> Re
 
     #[cfg(target_os = "android")]
     {
-        let _ = (&handle, &target);
+        use tauri_plugin_opener::OpenerExt;
+        let folder_uri = format!("folder:{}", target);
+        let _ = handle.opener().open_url(folder_uri, None::<&str>);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_file(handle: tauri::AppHandle, path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("File does not exist: {}", path));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", "", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(all(target_os = "linux", not(target_os = "android")))]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        let file_uri = format!("file:{}", path);
+        let _ = handle.opener().open_url(file_uri, None::<&str>);
+    }
+
+    Ok(())
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct UpdateCheckResult {
+    pub update_available: bool,
+    pub current_version: String,
+    pub latest_version: String,
+    pub release_name: Option<String>,
+    pub release_notes: Option<String>,
+    pub release_url: String,
+    pub published_at: Option<String>,
+}
+
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    let parse = |v: &str| -> Vec<u32> {
+        v.trim_start_matches('v')
+            .split('.')
+            .filter_map(|s| s.split('-').next().unwrap_or("").parse().ok())
+            .collect()
+    };
+    let l = parse(latest);
+    let c = parse(current);
+    for (a, b) in l.iter().zip(c.iter()) {
+        if a > b {
+            return true;
+        } else if a < b {
+            return false;
+        }
+    }
+    l.len() > c.len()
+}
+
+#[tauri::command]
+async fn check_for_updates() -> Result<UpdateCheckResult, String> {
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let client = reqwest::Client::builder()
+        .user_agent("Teralace-Update-Checker")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let res = client
+        .get("https://api.github.com/repos/LoLyeah/teralace/releases/latest")
+        .send()
+        .await
+        .map_err(|e| format!("Network error checking for updates: {}", e))?;
+
+    if !res.status().is_success() {
+        return Err(format!("GitHub API returned status: {}", res.status()));
+    }
+
+    let json: serde_json::Value = res
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse release info: {}", e))?;
+
+    let tag_name = json["tag_name"]
+        .as_str()
+        .ok_or_else(|| "Missing tag_name in release response".to_string())?;
+
+    let clean_latest = tag_name.trim_start_matches('v').to_string();
+    let release_url = json["html_url"]
+        .as_str()
+        .unwrap_or("https://github.com/LoLyeah/teralace/releases")
+        .to_string();
+    let release_name = json["name"].as_str().map(|s| s.to_string());
+    let release_notes = json["body"].as_str().map(|s| s.to_string());
+    let published_at = json["published_at"].as_str().map(|s| s.to_string());
+
+    let update_available = is_newer_version(&clean_latest, &current_version);
+
+    Ok(UpdateCheckResult {
+        update_available,
+        current_version,
+        latest_version: clean_latest,
+        release_name,
+        release_notes,
+        release_url,
+        published_at,
+    })
+}
+
+#[tauri::command]
+async fn delete_file_from_disk(handle: tauri::AppHandle, path: String) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    if p.exists() {
+        if p.is_dir() {
+            std::fs::remove_dir_all(&p).map_err(|e| format!("Failed to delete directory: {}", e))?;
+        } else {
+            std::fs::remove_file(&p).map_err(|e| format!("Failed to delete file: {}", e))?;
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        // Tell Android MediaScanner to update so Gallery / Media player removes deleted files immediately
+        use tauri_plugin_opener::OpenerExt;
+        let scan_uri = format!("scan:{}", path);
+        let _ = handle.opener().open_url(scan_uri, None::<&str>);
     }
 
     Ok(())
@@ -482,9 +627,9 @@ async fn save_app_settings(
 
 #[cfg(desktop)]
 fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let show_i = MenuItem::with_id(app, "show", "Show TeraLace", true, None::<&str>)?;
+    let show_i = MenuItem::with_id(app, "show", "Show Teralace", true, None::<&str>)?;
     let hide_i = MenuItem::with_id(app, "hide", "Hide to Tray", true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, "quit", "Quit TeraLace", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "quit", "Quit Teralace", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_i, &hide_i, &quit_i])?;
 
     let icon = app.default_window_icon().cloned().unwrap_or_else(|| {
@@ -495,7 +640,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .icon(icon)
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .tooltip("TeraLace - TeraBox Downloader")
+        .tooltip("Teralace - TeraBox Downloader")
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
                 if let Some(window) = app.get_webview_window("main") {
@@ -579,7 +724,7 @@ fn get_debug_log_mode() -> Result<bool, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     logging::init_logger();
-    log::info!("[App] TeraLace initialized (version {})", env!("CARGO_PKG_VERSION"));
+    log::info!("[App] Teralace initialized (version {})", env!("CARGO_PKG_VERSION"));
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -598,7 +743,7 @@ pub fn run() {
         {
             use tauri::Manager;
             if let Ok(dl_dir) = app.path().download_dir() {
-                let tb_dir = dl_dir.join("TeraBox");
+                let tb_dir = dl_dir.join("Teralace");
                 tauri::async_runtime::block_on(async {
                     DOWNLOAD_MANAGER.set_default_dir(tb_dir).await;
                 });
@@ -641,6 +786,9 @@ pub fn run() {
             pause_all_downloads,
             resume_all_downloads,
             open_download_dir,
+            open_file,
+            delete_file_from_disk,
+            check_for_updates,
             set_bandwidth_limit,
             get_bandwidth_limit,
             get_app_settings,

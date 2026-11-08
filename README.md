@@ -1,17 +1,17 @@
 <p align="center">
-  <img src="assets/logo.png" alt="TeraLace Logo" width="130" />
+  <img src="assets/logo.png" alt="Teralace Logo" width="130" />
 </p>
 
-<h1 align="center">TeraLace</h1>
+<h1 align="center">Teralace</h1>
 
 <p align="center">
   <strong>Fast, resilient, multiplatform TeraBox downloader powered by Tauri v2 &amp; Rust.</strong><br>
-  Engineered for <strong>Windows</strong>, <strong>macOS</strong>, and <strong>Android</strong> with zero external dependencies.
+  Engineered for <strong>Windows</strong>, <strong>macOS</strong>, <strong>Linux</strong>, and <strong>Android</strong> with zero external dependencies.
 </p>
 
 <p align="center">
   <a href="https://github.com/LoLyeah/teralace/releases/latest"><img src="https://img.shields.io/github/v/release/LoLyeah/teralace?style=for-the-badge&color=0284c7" alt="Latest Release" /></a>
-  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Android-38bdf8?style=for-the-badge" alt="Platforms" />
+  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-38bdf8?style=for-the-badge" alt="Platforms" />
   <img src="https://img.shields.io/badge/Backend-Rust%20%2B%20Tauri%20v2-orange?style=for-the-badge" alt="Backend" />
   <img src="https://img.shields.io/badge/Frontend-React%2018%20%2B%20Tailwind-61dafb?style=for-the-badge" alt="Frontend" />
   <img src="https://img.shields.io/badge/License-GPL--3.0-green?style=for-the-badge" alt="License" />
@@ -28,6 +28,7 @@ Pre-compiled, release-ready packages for all platforms are available on the **[G
 | **Windows** | Standard Installer | Setup `.exe` | x86_64 | [**Setup `.exe`**](https://github.com/LoLyeah/teralace/releases/latest) |
 | **Windows** | Portable Archive | `.zip` | x86_64 | [**Portable `.zip`**](https://github.com/LoLyeah/teralace/releases/latest) |
 | **macOS** | Universal Bundle | `.dmg` | Apple Silicon (`M1–M4`) & Intel (`x64`) | [**Universal `.dmg`**](https://github.com/LoLyeah/teralace/releases/latest) |
+| **Linux** | Portable AppImage | `.AppImage` | x86_64 (`amd64`) | [**Portable `.AppImage`**](https://github.com/LoLyeah/teralace/releases/latest) |
 | **Android** | Signed Package | `.apk` | Universal (`ARM64` / `x86_64`) | [**Universal `.apk`**](https://github.com/LoLyeah/teralace/releases/latest) |
 
 ---
@@ -101,14 +102,36 @@ npm run tauri android build --apk --target aarch64 --ci
 
 ### 1. Personal Session (`ndus` Cookie)
 TeraBox blocks anonymous downloads for shared folders or large files (`31045: user not exists`). To enable high-speed downloads:
-* **Option A (One-Tap In-App):** Open **Settings** &rarr; **TeraBox Cookie** &rarr; click **Sign In to TeraBox**. Log in once and TeraLace will automatically capture and save your session cookie!
-* **Option B (Manual):** Open [TeraBox Web](https://www.terabox.app/), log in, copy your `ndus` cookie from DevTools or using our mobile bookmarklet, and paste it into **Settings** &rarr; **TeraBox Cookie**.
+* **Option A (One-Tap In-App):** Open **Settings** &rarr; **TeraBox Cookie** &rarr; click **Sign In to TeraBox**. Log in once and Teralace will automatically capture and save your session cookie!
+* **Option B (Android — Kiwi Browser + Cookie-Editor, 100% Guaranteed):**
+  Because TeraBox flags the `ndus` session cookie as **`HttpOnly`** on most regions, mobile browser JavaScript is forbidden by security design from reading it. The reliable mobile solution is:
+  1. Install **Kiwi Browser** from the Google Play Store (which supports Chrome extensions).
+  2. Install the **Cookie-Editor** extension from the Chrome Web Store in Kiwi.
+  3. Open [terabox.app](https://www.terabox.app/), log in, tap `⋮` &rarr; **Cookie-Editor**, and copy the `ndus` cookie value.
+  4. Return to Teralace and tap **Paste**.
+* **Option C (Android — Chrome Bookmarklet Overlay):** 
+  If your TeraBox regional domain allows client-accessible storage:
+  1. In Teralace **Settings** &rarr; **TeraBox Cookie**, tap **Copy Helper Bookmarklet**.
+  2. In Chrome on Android, bookmark any page (`⋮` &rarr; `★`), tap **Edit**, set the bookmark name to `ndus`, clear the URL field, and paste the bookmarklet script.
+  3. Open [terabox.app](https://www.terabox.app/) in Chrome and log in.
+  4. Tap the Chrome address bar, type `ndus`, and tap the suggestion with the **★ Bookmark** icon *(do not tap Search or press Enter)*.
+  5. An on-page floating card will appear allowing 1-tap copy of your `ndus` token.
+* **Option D (Desktop DevTools):** Open [TeraBox Web](https://www.terabox.app/), log in, press <kbd>F12</kbd> &rarr; **Application** &rarr; **Cookies**, copy the `ndus` value, and paste it into **Settings** &rarr; **TeraBox Cookie**.
 
 ### 2. Custom API Pool & Self-Hosted Cloudflare Worker
-You can add or prioritize custom endpoints in **Settings** &rarr; **API Pool & Balancer**:
-* Deploy your own free Cloudflare Worker using [`cloudflare-worker/worker.js`](./cloudflare-worker/README.md).
-* Add your worker URL (e.g. `https://my-worker.workers.dev/`) as a custom endpoint.
-* TeraLace continuously monitors endpoint reachability and displays live online/offline latency badges.
+Teralace features an automatic round-robin balancer and circuit-breaker. When public endpoints are throttled, running your own private Cloudflare Worker gives you 100% uptime and dedicated extraction bandwidth for **free** (100,000 requests/day).
+
+#### 🚀 2-Minute Web Dashboard Setup (No CLI Required):
+1. **Create Worker:** Log into the [Cloudflare Dashboard](https://dash.cloudflare.com/) &rarr; navigate to **Compute (Workers)** &rarr; **Workers & Pages** &rarr; **Create Worker**.
+2. **Name & Deploy:** Name it `teralace-resolver` and click **Deploy**.
+3. **Paste Script:** Click **Edit Code** (Quick Edit), delete the default sample code, and paste the code from [`cloudflare-worker/worker.js`](./cloudflare-worker/worker.js) (or click **Copy worker.js Script** inside Teralace Settings). Click **Deploy**.
+4. **Connect in Teralace:** Copy your worker URL (`https://teralace-resolver.<subdomain>.workers.dev/`), open Teralace **Settings** &rarr; **API Pool & Balancer**, paste it into **Base URL**, and click **+ Add**.
+
+*(Optional)* Under Worker **Settings &rarr; Variables and Secrets**:
+* `AUTH_TOKEN`: Password-protect your worker (input the same token into Teralace's *Auth Token* field).
+* `TERABOX_COOKIE`: Pre-set your personal `ndus` cookie so all extractions automatically authenticate.
+
+See [`cloudflare-worker/README.md`](./cloudflare-worker/README.md) for Wrangler CLI deployment and health checks.
 
 ---
 

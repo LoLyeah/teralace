@@ -35,6 +35,7 @@ pub struct DownloadInfo {
     pub progress: f64,
     pub status: DownloadStatus,
     pub error_message: Option<String>,
+    pub file_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

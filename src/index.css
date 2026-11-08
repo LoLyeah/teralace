@@ -3,7 +3,8 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  :root, .light {
+    color-scheme: light;
     --background: 210 20% 98%;
     --foreground: 222.2 84% 4.9%;
 
@@ -41,29 +42,8 @@
     --sar: env(safe-area-inset-right, 0px);
   }
 
-  /* Material You (Material 3 Dynamic Tonal & Pill Geometry) */
-  .material-you {
-    --radius: 1rem;
-    --background: 215 32% 96.5%;
-    --card: 215 40% 99%;
-    --popover: 215 40% 99%;
-    --secondary: 215 30% 92%;
-    --muted: 215 30% 92%;
-    --accent: 215 35% 89%;
-    --border: 215 25% 86%;
-  }
-
-  .material-you.dark {
-    --radius: 1rem;
-    --card: 222 34% 12%;
-    --popover: 222 34% 12%;
-    --secondary: 222 28% 18%;
-    --muted: 222 26% 16%;
-    --accent: 222 32% 20%;
-    --border: 222 24% 22%;
-  }
-
   .dark {
+    color-scheme: dark;
     /* Brand deep theme #0a101d */
     --background: 222.2 47.4% 7.8%;
     --foreground: 210 40% 98%;
@@ -95,12 +75,40 @@
     --ring: 199 95% 74%;
   }
 
+  /* Material You (Material 3 Dynamic Tonal & Pill Geometry) */
+  .material-you {
+    --radius: 1rem;
+    --background: 215 32% 96.5%;
+    --card: 215 40% 99%;
+    --popover: 215 40% 99%;
+    --secondary: 215 30% 92%;
+    --muted: 215 30% 92%;
+    --accent: 215 35% 89%;
+    --border: 215 25% 86%;
+  }
+
+  .material-you.dark, .dark.material-you, .dark .material-you {
+    --radius: 1rem;
+    --background: 222.2 47.4% 7.8%;
+    --card: 222 34% 12%;
+    --popover: 222 34% 12%;
+    --secondary: 222 28% 18%;
+    --muted: 222 26% 16%;
+    --accent: 222 32% 20%;
+    --border: 222 24% 22%;
+  }
+
   /* ==========================================================================
      Android 17 Material 3 Tonal Color Palettes
      ========================================================================== */
 
   /* 1. Glacier Sky (Default Brand Palette) */
   .palette-glacier {
+    --primary: 201 94% 44%;
+    --primary-foreground: 210 40% 98%;
+    --ring: 201 94% 44%;
+  }
+  .dark.palette-glacier, .dark .palette-glacier {
     --primary: 199 95% 74%;
     --primary-foreground: 222.2 47.4% 7.8%;
     --ring: 199 95% 74%;
@@ -108,6 +116,11 @@
 
   /* 2. Warm Sand */
   .palette-sand {
+    --primary: 37 90% 38%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 37 90% 38%;
+  }
+  .dark.palette-sand, .dark .palette-sand {
     --primary: 37 68% 68%;
     --primary-foreground: 222.2 47.4% 7.8%;
     --ring: 37 68% 68%;
@@ -115,6 +128,11 @@
 
   /* 3. Mineral Sage */
   .palette-sage {
+    --primary: 156 70% 34%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 156 70% 34%;
+  }
+  .dark.palette-sage, .dark .palette-sage {
     --primary: 156 47% 68%;
     --primary-foreground: 222.2 47.4% 7.8%;
     --ring: 156 47% 68%;
@@ -122,6 +140,11 @@
 
   /* 4. Dusty Lavender */
   .palette-lavender {
+    --primary: 231 65% 54%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 231 65% 54%;
+  }
+  .dark.palette-lavender, .dark .palette-lavender {
     --primary: 231 93% 82%;
     --primary-foreground: 222.2 47.4% 7.8%;
     --ring: 231 93% 82%;
@@ -129,6 +152,11 @@
 
   /* 5. Terracotta Clay */
   .palette-terracotta {
+    --primary: 16 75% 45%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 16 75% 45%;
+  }
+  .dark.palette-terracotta, .dark .palette-terracotta {
     --primary: 16 64% 68%;
     --primary-foreground: 222.2 47.4% 7.8%;
     --ring: 16 64% 68%;
@@ -151,7 +179,7 @@
   * {
     @apply border-border;
   }
-  body {
+  html, body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
     caret-color: hsl(var(--primary));

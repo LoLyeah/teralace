@@ -9,6 +9,7 @@ import type {
   ApiEndpointConfig,
   EndpointHealthInfo,
   LogEntry,
+  UpdateCheckResult,
 } from "./types";
 
 export async function getTeraboxInfo(url: string): Promise<TeraboxInfo> {
@@ -65,6 +66,18 @@ export async function saveApiEndpoints(
 
 export async function openDownloadDir(path?: string): Promise<void> {
   return invoke<void>("open_download_dir", { path });
+}
+
+export async function openFile(path: string): Promise<void> {
+  return invoke<void>("open_file", { path });
+}
+
+export async function deleteFileFromDisk(path: string): Promise<void> {
+  return invoke<void>("delete_file_from_disk", { path });
+}
+
+export async function checkForUpdates(): Promise<UpdateCheckResult> {
+  return invoke<UpdateCheckResult>("check_for_updates");
 }
 
 export async function startAria2(): Promise<void> {

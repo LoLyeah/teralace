@@ -11,7 +11,7 @@ use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 
-const CHUNK_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
+const CHUNK_USER_AGENT: &str = "netdisk;P2SP;2.2.60.2";
 
 #[derive(Clone)]
 pub struct DownloadTask {
@@ -39,7 +39,8 @@ pub struct DownloadManager {
 impl DownloadManager {
     pub fn new() -> Self {
         let client = Client::builder()
-            .timeout(Duration::from_secs(60))
+            .connect_timeout(Duration::from_secs(30))
+            .tcp_keepalive(Duration::from_secs(15))
             .user_agent(CHUNK_USER_AGENT)
             .referer(true)
             .redirect(reqwest::redirect::Policy::limited(10))
@@ -47,12 +48,12 @@ impl DownloadManager {
             .expect("Failed to build downloader HTTP client");
 
         #[cfg(target_os = "android")]
-        let default_dir = PathBuf::from("/storage/emulated/0/Download/TeraBox");
+        let default_dir = PathBuf::from("/storage/emulated/0/Download/Teralace");
 
         #[cfg(not(target_os = "android"))]
         let default_dir = dirs::download_dir()
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-            .join("TeraBox");
+            .join("Teralace");
 
         Self {
             client,
@@ -98,7 +99,7 @@ impl DownloadManager {
             {
                 let mut resolved = false;
                 let fallbacks = [
-                    PathBuf::from("/storage/emulated/0/Download/TeraBox"),
+                    PathBuf::from("/storage/emulated/0/Download/Teralace"),
                     PathBuf::from("/storage/emulated/0/Download"),
                     PathBuf::from("/sdcard/Download"),
                     PathBuf::from("/data/data/com.teralace.downloader/files/Download"),
@@ -214,7 +215,7 @@ impl DownloadManager {
         referer: Option<&str>,
     ) -> String {
         let no_redirect_client = match Client::builder()
-            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::none())
             .build()
         {
@@ -302,6 +303,7 @@ impl DownloadManager {
         let mut supports_range = false;
         #[allow(unused_assignments)]
         let mut probe_succeeded = false;
+        let is_cdn_redirect = effective_url != task.url && (effective_url.contains("pkey=") || effective_url.contains("sign="));
 
         // Try probing with candidate referers using Range: bytes=0-0 GET first on effective_url
         for ref_opt in &candidate_referers {
@@ -314,6 +316,9 @@ impl DownloadManager {
             }
             for (k, v) in &task.headers {
                 if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                    if is_cdn_redirect && k.eq_ignore_ascii_case("cookie") {
+                        continue;
+                    }
                     req = req.header(k, v);
                 }
             }
@@ -358,6 +363,9 @@ impl DownloadManager {
                 }
                 for (k, v) in &task.headers {
                     if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                        if is_cdn_redirect && k.eq_ignore_ascii_case("cookie") {
+                            continue;
+                        }
                         req = req.header(k, v);
                     }
                 }
@@ -385,19 +393,30 @@ impl DownloadManager {
 
         task.total_size.store(total_size, Ordering::SeqCst);
 
-        // Speed calculator task
+        // Speed calculator task with exponential moving average to prevent speed indicator blinking
         let task_clone = task.clone();
         let monitor_handle = tokio::spawn(async move {
             let mut last_downloaded = 0u64;
+            let mut smoothed_speed = 0u64;
             loop {
-                tokio::time::sleep(Duration::from_millis(1000)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
                 if task_clone.cancel_flag.load(Ordering::Relaxed) {
                     break;
                 }
                 let current = task_clone.downloaded.load(Ordering::Relaxed);
-                let speed = current.saturating_sub(last_downloaded);
-                task_clone.speed.store(speed, Ordering::Relaxed);
+                let instant_speed = current.saturating_sub(last_downloaded).saturating_mul(2);
                 last_downloaded = current;
+
+                smoothed_speed = if smoothed_speed == 0 {
+                    instant_speed
+                } else if instant_speed == 0 {
+                    // Decay smoothly rather than crashing to 0 on a single chunk transition
+                    (smoothed_speed * 3) / 4
+                } else {
+                    (smoothed_speed * 3 + instant_speed * 2) / 5
+                };
+
+                task_clone.speed.store(smoothed_speed, Ordering::Relaxed);
 
                 let status = task_clone.status.read().await;
                 if *status == DownloadStatus::Complete || *status == DownloadStatus::Error {
@@ -522,6 +541,7 @@ impl DownloadManager {
         end: u64,
         referer: Option<&str>,
     ) -> Result<(), String> {
+        let is_cdn_redirect = effective_url != task.url && (effective_url.contains("pkey=") || effective_url.contains("sign="));
         let range_val = format!("bytes={}-{}", start, end);
         let mut req = client
             .get(&effective_url)
@@ -532,6 +552,9 @@ impl DownloadManager {
         }
         for (k, v) in &task.headers {
             if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                if is_cdn_redirect && k.eq_ignore_ascii_case("cookie") {
+                    continue;
+                }
                 req = req.header(k, v);
             }
         }
@@ -633,6 +656,7 @@ impl DownloadManager {
         effective_url: &str,
         referer: Option<&str>,
     ) -> Result<(), String> {
+        let is_cdn_redirect = effective_url != task.url && (effective_url.contains("pkey=") || effective_url.contains("sign="));
         let mut req = client
             .get(effective_url)
             .header(USER_AGENT, CHUNK_USER_AGENT);
@@ -641,6 +665,9 @@ impl DownloadManager {
         }
         for (k, v) in &task.headers {
             if !k.eq_ignore_ascii_case("referer") && !k.eq_ignore_ascii_case("user-agent") {
+                if is_cdn_redirect && k.eq_ignore_ascii_case("cookie") {
+                    continue;
+                }
                 req = req.header(k, v);
             }
         }
@@ -766,6 +793,7 @@ impl DownloadManager {
             progress,
             status,
             error_message: error,
+            file_path: Some(task.filepath.to_string_lossy().to_string()),
         })
     }
 
@@ -821,6 +849,7 @@ impl DownloadManager {
                 progress,
                 status,
                 error_message: error,
+                file_path: Some(task.filepath.to_string_lossy().to_string()),
             });
         }
 

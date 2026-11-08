@@ -77,3 +77,37 @@ jobs:
             echo "Cargo check failed with errors!"
             exit 1
           fi
+
+  check-rust-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build Frontend First
+        run: |
+          npm install
+          npm run build
+
+      - name: Install Linux Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo Check Linux
+        shell: bash
+        run: |
+          cd src-tauri
+          cargo check
