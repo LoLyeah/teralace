@@ -71,16 +71,31 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path "$env:LOCALAPPDATA\tauri\NSIS\Plugins\x86-unicode"
-          if (-not (Test-Path "$env:LOCALAPPDATA\tauri\NSIS\makensis.exe")) {
+          $nsisDir = "$env:LOCALAPPDATA\tauri\NSIS"
+          New-Item -ItemType Directory -Force -Path "$nsisDir\Plugins\x86-unicode"
+          if (-not (Test-Path "$nsisDir\makensis.exe")) {
             Write-Host "Pre-downloading NSIS binary archive via GitHub API..."
+            $tmpDir = "$env:TEMP\nsis_extract_tmp"
+            New-Item -ItemType Directory -Force -Path $tmpDir
             curl.exe --retry 10 --retry-delay 3 --retry-connrefused -fSL -H "Accept: application/octet-stream" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/tauri-apps/binary-releases/releases/assets/106383467" -o "$env:TEMP\nsis-3.zip"
-            Expand-Archive -Path "$env:TEMP\nsis-3.zip" -DestinationPath "$env:LOCALAPPDATA\tauri\NSIS" -Force
+            Expand-Archive -Path "$env:TEMP\nsis-3.zip" -DestinationPath $tmpDir -Force
+            $subDir = Get-ChildItem -Path $tmpDir -Directory | Select-Object -First 1
+            if ($subDir) {
+              Write-Host "Found subfolder $($subDir.FullName), copying contents to $nsisDir..."
+              Copy-Item -Path "$($subDir.FullName)\*" -Destination $nsisDir -Recurse -Force
+            } else {
+              Copy-Item -Path "$tmpDir\*" -Destination $nsisDir -Recurse -Force
+            }
+            Remove-Item -Path $tmpDir -Recurse -Force
           }
-          if (-not (Test-Path "$env:LOCALAPPDATA\tauri\NSIS\Plugins\x86-unicode\nsis_tauri_utils.dll")) {
+          if (-not (Test-Path "$nsisDir\Plugins\x86-unicode\nsis_tauri_utils.dll")) {
             Write-Host "Pre-downloading nsis_tauri_utils.dll via GitHub API..."
-            curl.exe --retry 10 --retry-delay 3 --retry-connrefused -fSL -H "Accept: application/octet-stream" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/tauri-apps/nsis-tauri-utils/releases/assets/257923380" -o "$env:LOCALAPPDATA\tauri\NSIS\Plugins\x86-unicode\nsis_tauri_utils.dll"
+            curl.exe --retry 10 --retry-delay 3 --retry-connrefused -fSL -H "Accept: application/octet-stream" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/tauri-apps/nsis-tauri-utils/releases/assets/257923380" -o "$nsisDir\Plugins\x86-unicode\nsis_tauri_utils.dll"
           }
+          Write-Host "Verifying NSIS pre-cache:"
+          Write-Host "makensis.exe exists: $(Test-Path "$nsisDir\makensis.exe")"
+          Write-Host "nsis_tauri_utils.dll exists: $(Test-Path "$nsisDir\Plugins\x86-unicode\nsis_tauri_utils.dll")"
+          Get-ChildItem -Path $nsisDir
 
       - name: Pre-cache Linux AppImage Bundling Tools
         if: startsWith(matrix.platform, 'ubuntu')
@@ -119,9 +134,10 @@ jobs:
           if ($exe) {
             Write-Host "Found standalone executable: $($exe.FullName)"
             Copy-Item -Path $exe.FullName -Destination dist-portable\TeraLace.exe
-            $zipPath = "dist-portable\TeraLace_${env:APP_VERSION}_x64_portable.zip"
+            $appVersion = if ($env:APP_VERSION) { $env:APP_VERSION } else { (Get-Content package.json | ConvertFrom-Json).version }
+            $zipPath = "dist-portable\TeraLace_${appVersion}_x64_portable.zip"
             Write-Host "Compressing portable zip: $zipPath"
-            Compress-Archive -Path dist-portable\TeraLace.exe -DestinationPath $zipPath
+            Compress-Archive -Path dist-portable\TeraLace.exe -DestinationPath $zipPath -Force
             Get-ChildItem -Path dist-portable
           } else {
             Write-Error "No standalone executable found in src-tauri\target\release!"
@@ -129,13 +145,23 @@ jobs:
 
       - name: Upload Portable Windows Release
         if: matrix.platform == 'windows-latest' && startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: |
-            dist-portable/TeraLace_*_x64_portable.zip
+        shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view ${{ github.ref_name }}
+          if ($LASTEXITCODE -ne 0) {
+            try {
+              gh release create ${{ github.ref_name }} --title "TeraLace ${{ github.ref_name }}" --notes-file RELEASE_NOTES.md
+            } catch {
+              Write-Host "Release might have just been created: $_"
+            }
+          }
+          $zips = Get-ChildItem -Path dist-portable -Filter "*.zip"
+          foreach ($zip in $zips) {
+            Write-Host "Uploading $($zip.FullName) to release ${{ github.ref_name }}..."
+            gh release upload ${{ github.ref_name }} $zip.FullName --clobber
+          }
 
       - name: Locate & Package Linux AppImage
         if: startsWith(matrix.platform, 'ubuntu')
@@ -147,13 +173,17 @@ jobs:
 
       - name: Upload Linux AppImage Release
         if: startsWith(matrix.platform, 'ubuntu') && startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: |
-            dist-appimage/*.AppImage
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view ${{ github.ref_name }} >/dev/null 2>&1 || gh release create ${{ github.ref_name }} --title "TeraLace ${{ github.ref_name }}" --notes-file RELEASE_NOTES.md || true
+          for f in dist-appimage/*.AppImage; do
+            if [ -f "$f" ]; then
+              echo "Uploading $f to release ${{ github.ref_name }}..."
+              gh release upload ${{ github.ref_name }} "$f" --clobber
+            fi
+          done
 
   release-android:
     permissions:
@@ -235,6 +265,7 @@ jobs:
           mkdir -p dist-apk
           APKSIGNER=$(find $ANDROID_HOME/build-tools/ -name apksigner | sort -V | tail -n 1)
           echo "Using apksigner: $APKSIGNER"
+          APP_VERSION="${APP_VERSION:-$(node -p "require('./package.json').version")}"
           for f in $(find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk"); do
             echo "Signing $f..."
             "$APKSIGNER" sign --ks app.keystore --ks-pass pass:teralace123 --ks-key-alias teralace --key-pass pass:teralace123 "$f"
@@ -244,12 +275,15 @@ jobs:
           ls -la dist-apk/
 
       - name: Upload Android APK
-        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
-        with:
-          tag_name: ${{ github.ref_name }}
-          body_path: RELEASE_NOTES.md
-          files: |
-            dist-apk/*.apk
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view ${{ github.ref_name }} >/dev/null 2>&1 || gh release create ${{ github.ref_name }} --title "TeraLace ${{ github.ref_name }}" --notes-file RELEASE_NOTES.md || true
+          for f in dist-apk/*.apk; do
+            if [ -f "$f" ]; then
+              echo "Uploading $f to release ${{ github.ref_name }}..."
+              gh release upload ${{ github.ref_name }} "$f" --clobber
+            fi
+          done
