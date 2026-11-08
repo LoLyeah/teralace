@@ -74,19 +74,21 @@ if (fs.existsSync(resDir)) {
       }
       fs.writeFileSync(colorsXmlPath, colorsXml, 'utf8');
       console.log('Updated colors.xml ic_launcher_background to #0a101d');
+    } else {
+      const newColorsXml = `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#0a101d</color>\n</resources>\n`;
+      fs.writeFileSync(colorsXmlPath, newColorsXml, 'utf8');
+      console.log('Created colors.xml with ic_launcher_background #0a101d');
     }
 
-    // 2b. Update or create ic_launcher_background.xml in values/
+    // 2b. Remove redundant values/ic_launcher_background.xml to avoid duplicate resource collision with colors.xml
     const bgXmlPath = path.join(valuesDir, 'ic_launcher_background.xml');
     if (fs.existsSync(bgXmlPath)) {
-      let bgXml = fs.readFileSync(bgXmlPath, 'utf8');
-      bgXml = bgXml.replace(/#(?:FFFFFF|ffffff|[0-9a-fA-F]{6})/g, '#0a101d');
-      fs.writeFileSync(bgXmlPath, bgXml, 'utf8');
-      console.log('Updated values/ic_launcher_background.xml to #0a101d');
-    } else {
-      const newBgXml = `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#0a101d</color>\n</resources>\n`;
-      fs.writeFileSync(bgXmlPath, newBgXml, 'utf8');
-      console.log('Created values/ic_launcher_background.xml with brand theme #0a101d');
+      try {
+        fs.unlinkSync(bgXmlPath);
+        console.log('Removed redundant values/ic_launcher_background.xml to avoid AAPT duplicate resource collision with colors.xml');
+      } catch (e) {
+        console.warn('Could not remove values/ic_launcher_background.xml:', e.message);
+      }
     }
   }
 

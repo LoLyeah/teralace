@@ -24,7 +24,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "category": "Network",
+    "category": "Utilities",
     "shortDescription": "Fast and resilient multiplatform TeraBox downloader",
     "longDescription": "Teralace is a fast, multi-threaded TeraBox file downloader built with Tauri v2, Rust, and React.",
     "icon": [
