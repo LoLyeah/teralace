@@ -72,7 +72,7 @@ jobs:
         shell: pwsh
         run: |
           $nsisDir = "$env:LOCALAPPDATA\tauri\NSIS"
-          New-Item -ItemType Directory -Force -Path "$nsisDir\Plugins\x86-unicode"
+          New-Item -ItemType Directory -Force -Path "$nsisDir\Plugins\x86-unicode\additional"
           if (-not (Test-Path "$nsisDir\makensis.exe")) {
             Write-Host "Pre-downloading NSIS binary archive via GitHub API..."
             $tmpDir = "$env:TEMP\nsis_extract_tmp"
@@ -88,13 +88,17 @@ jobs:
             }
             Remove-Item -Path $tmpDir -Recurse -Force
           }
-          if (-not (Test-Path "$nsisDir\Plugins\x86-unicode\nsis_tauri_utils.dll")) {
+          if (-not (Test-Path "$nsisDir\Plugins\x86-unicode\additional\nsis_tauri_utils.dll")) {
             Write-Host "Pre-downloading nsis_tauri_utils.dll via GitHub API..."
-            curl.exe --retry 10 --retry-delay 3 --retry-connrefused -fSL -H "Accept: application/octet-stream" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/tauri-apps/nsis-tauri-utils/releases/assets/257923380" -o "$nsisDir\Plugins\x86-unicode\nsis_tauri_utils.dll"
+            curl.exe --retry 10 --retry-delay 3 --retry-connrefused -fSL -H "Accept: application/octet-stream" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/tauri-apps/nsis-tauri-utils/releases/assets/257923380" -o "$nsisDir\Plugins\x86-unicode\additional\nsis_tauri_utils.dll"
           }
+          # Tauri checks both Plugins\x86-unicode\nsis_tauri_utils.dll and additional\nsis_tauri_utils.dll
+          Copy-Item -Path "$nsisDir\Plugins\x86-unicode\additional\nsis_tauri_utils.dll" -Destination "$nsisDir\Plugins\x86-unicode\nsis_tauri_utils.dll" -Force
+
           Write-Host "Verifying NSIS pre-cache:"
           Write-Host "makensis.exe exists: $(Test-Path "$nsisDir\makensis.exe")"
-          Write-Host "nsis_tauri_utils.dll exists: $(Test-Path "$nsisDir\Plugins\x86-unicode\nsis_tauri_utils.dll")"
+          Write-Host "additional\nsis_tauri_utils.dll exists: $(Test-Path "$nsisDir\Plugins\x86-unicode\additional\nsis_tauri_utils.dll")"
+          Write-Host "Plugins\x86-unicode\nsis_tauri_utils.dll exists: $(Test-Path "$nsisDir\Plugins\x86-unicode\nsis_tauri_utils.dll")"
           Get-ChildItem -Path $nsisDir
 
       - name: Pre-cache Linux AppImage Bundling Tools
