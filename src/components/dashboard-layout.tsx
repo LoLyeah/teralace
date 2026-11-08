@@ -615,31 +615,30 @@ export function DashboardLayout() {
                 setSettingsTab('api');
               }
             }}
-            aria-label={`API Pool: ${healthyCount > 0 ? `${healthyCount} active endpoints` : 'All endpoints offline (using Direct Scraper)'}. Click to configure.`}
+            aria-label={`Resolver Mode: ${healthyCount > 0 ? `API Pool (${healthyCount} active)` : `Direct Scraper (${teraboxCookie ? 'Cookie' : 'Guest'})`}. Click to configure.`}
             className={cn(
               "hidden sm:flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-all border focus:outline-none focus:ring-1 focus:ring-ring",
               healthyCount > 0 
-                ? "bg-muted/40 hover:bg-muted/80 border-border/60 hover:border-border" 
-                : "bg-destructive/10 text-destructive border-destructive/30 hover:bg-destructive/20"
+                ? "bg-muted/40 hover:bg-muted/80 border-border/60 hover:border-border text-foreground" 
+                : "bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20"
             )}
-            title={healthyCount > 0 ? "Click to inspect API endpoints" : "All remote endpoints are offline. TeraLace is using direct scraping with your session cookie."}
+            title={healthyCount > 0 
+              ? `API Pool active with ${healthyCount} healthy endpoint(s). Click to configure.` 
+              : `Direct TeraBox resolver active (${teraboxCookie ? 'Cookie session' : 'Guest mode'}). Click to configure.`
+            }
           >
             <span className="relative flex h-2 w-2">
               <span className={cn(
-                "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
-                healthyCount > 0 ? "bg-emerald-400" : "bg-destructive"
-              )} />
-              <span className={cn(
                 "relative inline-flex rounded-full h-2 w-2",
-                healthyCount > 0 ? "bg-emerald-500" : "bg-destructive"
+                healthyCount > 0 ? "bg-emerald-500" : "bg-amber-400"
               )} />
             </span>
-            <span className={cn("text-[11px]", healthyCount > 0 ? "text-muted-foreground" : "text-destructive font-medium")}>API Pool:</span>
+            <span className="text-[11px] text-muted-foreground font-medium">Resolver:</span>
             {healthyCount > 0 ? (
-              <span className="text-emerald-500 font-semibold">{healthyCount} Active</span>
+              <span className="text-emerald-500 font-semibold">{healthyCount} API Active</span>
             ) : (
-              <span className="font-semibold text-destructive flex items-center gap-1">
-                <AlertTriangle className="h-3 w-3" /> Offline (Direct Scraper)
+              <span className="font-semibold text-amber-500 flex items-center gap-1">
+                Direct Scraper ({teraboxCookie ? 'Cookie' : 'Guest'})
               </span>
             )}
           </div>
@@ -1309,14 +1308,14 @@ export function DashboardLayout() {
                       </button>
                     </div>
 
-                    {/* All Endpoints Offline Warning Banner */}
+                    {/* Direct Scraper Active (Yellow Mode) Info Banner */}
                     {healthyCount === 0 && apiEndpoints.length > 0 && (
-                      <div className="p-2.5 bg-destructive/10 border border-destructive/25 rounded-xl flex items-start gap-2 text-xs text-destructive">
-                        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <div className="p-2.5 bg-amber-500/10 border border-amber-500/25 rounded-xl flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+                        <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
                         <div className="leading-relaxed">
-                          <p className="font-semibold">All Remote API Endpoints Are Offline</p>
-                          <p className="text-[11px] opacity-90">
-                            Public API pools are currently unreachable. TeraLace automatically falls back to its <strong>Direct TeraBox Scraper</strong>. Ensure you have your session cookie configured in the <strong>TeraBox Cookie</strong> tab for uninterrupted downloads.
+                          <p className="font-semibold text-foreground">Direct Scraper Active (Yellow Mode)</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            Remote API endpoints are currently offline or disabled. TeraLace is actively resolving links using its built-in <strong>Direct Scraper</strong> ({teraboxCookie ? "authenticated with session cookie" : "guest mode"}).
                           </p>
                         </div>
                       </div>

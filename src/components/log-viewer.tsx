@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { 
   Copy, Check, Trash2, RefreshCw, Bug, 
-  Search, Terminal, ArrowDown 
+  Search, Terminal, ArrowDown, Play, Pause
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -20,7 +20,8 @@ export function LogViewer({ className }: LogViewerProps) {
   const [filterLevel, setFilterLevel] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isDebugMode, setIsDebugMode] = useState<boolean>(false);
-  const [autoScroll, setAutoScroll] = useState<boolean>(true);
+  const [autoScroll, setAutoScroll] = useState<boolean>(false);
+  const [isLoggingActive, setIsLoggingActive] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
@@ -39,27 +40,37 @@ export function LogViewer({ className }: LogViewerProps) {
     }
   }, [filterLevel]);
 
-  // Initial debug mode check
+  // Initial debug mode check & conditional polling
   useEffect(() => {
     isMountedRef.current = true;
     getDebugLogMode().then(mode => {
       if (isMountedRef.current) setIsDebugMode(mode);
     }).catch(() => {});
-    fetchLogs();
 
-    const interval = setInterval(fetchLogs, 2000);
-    return () => {
-      isMountedRef.current = false;
-      clearInterval(interval);
-    };
-  }, [fetchLogs]);
+    if (isLoggingActive) {
+      fetchLogs();
+      const interval = setInterval(fetchLogs, 2000);
+      return () => {
+        isMountedRef.current = false;
+        clearInterval(interval);
+      };
+    }
+  }, [fetchLogs, isLoggingActive]);
 
-  // Scroll to bottom on new logs if enabled
+  // Scroll to bottom on new logs if autoScroll (Follow) is explicitly enabled
   useEffect(() => {
     if (autoScroll && consoleBottomRef.current) {
       consoleBottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [logs, autoScroll]);
+
+  const handleToggleLogging = () => {
+    const nextState = !isLoggingActive;
+    setIsLoggingActive(nextState);
+    if (nextState) {
+      fetchLogs();
+    }
+  };
 
   const handleToggleDebug = async () => {
     const nextMode = !isDebugMode;
@@ -128,19 +139,36 @@ export function LogViewer({ className }: LogViewerProps) {
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+        <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0 flex-wrap">
+          <Button
+            type="button"
+            size="sm"
+            variant={isLoggingActive ? "default" : "outline"}
+            className={cn(
+              "h-7 text-[11px] gap-1 px-2.5",
+              isLoggingActive && "bg-emerald-600 hover:bg-emerald-700 text-white"
+            )}
+            onClick={handleToggleLogging}
+            title={isLoggingActive ? "Pause live logging" : "Start collecting logs"}
+          >
+            {isLoggingActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 text-emerald-500" />}
+            <span>{isLoggingActive ? "Logging Active" : "Enable Logging"}</span>
+          </Button>
+
           <Button
             type="button"
             size="sm"
             variant={isDebugMode ? "default" : "outline"}
+            disabled={!isLoggingActive}
             className={cn(
               "h-7 text-[11px] gap-1 px-2.5",
               isDebugMode && "bg-purple-600 hover:bg-purple-700 text-white"
             )}
             onClick={handleToggleDebug}
+            title="Toggle verbose debug logging"
           >
             <Bug className="h-3.5 w-3.5" />
-            <span>{isDebugMode ? "Verbose Logging" : "Standard Log"}</span>
+            <span>{isDebugMode ? "Verbose" : "Standard"}</span>
           </Button>
 
           <Button
@@ -160,6 +188,7 @@ export function LogViewer({ className }: LogViewerProps) {
             size="sm"
             variant="ghost"
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+            disabled={!isLoggingActive}
             onClick={async () => {
               setIsRefreshing(true);
               await fetchLogs();
@@ -235,7 +264,25 @@ export function LogViewer({ className }: LogViewerProps) {
 
       {/* Terminal View */}
       <div className="flex-1 min-h-[220px] max-h-[380px] bg-zinc-950 text-zinc-200 border border-border/80 rounded-xl p-3 font-mono text-[11px] leading-relaxed overflow-y-auto select-text shadow-inner">
-        {filteredLogs.length === 0 ? (
+        {!isLoggingActive ? (
+          <div className="h-full min-h-[180px] flex flex-col items-center justify-center text-zinc-500 space-y-2 select-none">
+            <Terminal className="h-8 w-8 opacity-30 text-zinc-400" />
+            <p className="text-xs font-semibold text-zinc-300">Live Logging is Disabled</p>
+            <p className="text-[11px] text-zinc-500 max-w-sm text-center leading-relaxed">
+              Log collection and background polling are paused by default to save system resources. Click below to start capturing logs.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs gap-1.5 mt-2 border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-zinc-200"
+              onClick={handleToggleLogging}
+            >
+              <Play className="h-3 w-3 text-emerald-400" />
+              <span>Enable Logging</span>
+            </Button>
+          </div>
+        ) : filteredLogs.length === 0 ? (
           <div className="h-full min-h-[180px] flex flex-col items-center justify-center text-zinc-500 space-y-1.5 select-none">
             <Terminal className="h-6 w-6 opacity-40" />
             <p className="text-xs">No log entries found</p>
@@ -291,8 +338,12 @@ export function LogViewer({ className }: LogViewerProps) {
       </div>
 
       <div className="flex items-center justify-between text-[11px] text-muted-foreground px-1 shrink-0">
-        <span>Displaying {filteredLogs.length} of {logs.length} entries</span>
-        <span className="font-mono text-[10px]">Buffer: {logs.length}/600</span>
+        <span>
+          {isLoggingActive ? `Displaying ${filteredLogs.length} of ${logs.length} entries` : "Live logging is paused"}
+        </span>
+        <span className="font-mono text-[10px]">
+          Status: {isLoggingActive ? (isDebugMode ? "VERBOSE" : "ACTIVE") : "OFF"}
+        </span>
       </div>
     </div>
   );
