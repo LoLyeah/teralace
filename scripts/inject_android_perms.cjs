@@ -223,8 +223,8 @@ if (fs.existsSync(mainActivityPath)) {
     }
   }
 
-  if (!mainActivity.includes('AndroidClipboard')) {
-    const clipboardMethod = `
+  if (!mainActivity.includes('AndroidClipboard') || !mainActivity.includes('AndroidLogin')) {
+    const bridgeMethods = `
   override fun onWebViewCreate(webView: android.webkit.WebView) {
     super.onWebViewCreate(webView)
     try {
@@ -242,12 +242,171 @@ if (fs.existsSync(mainActivityPath)) {
       }
       webView.addJavascriptInterface(TeralaceClipboard(this), "AndroidClipboard")
     } catch (e: Exception) {}
+
+    try {
+      class TeraboxLoginBridge(private val act: android.app.Activity, private val mainView: android.webkit.WebView) {
+        private var pollHandler: android.os.Handler? = null
+        private var pollRunnable: Runnable? = null
+        private val captured = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        @android.webkit.JavascriptInterface
+        fun openLoginDialog() {
+          act.runOnUiThread {
+            try {
+              captured.set(false)
+              val dialog = android.app.Dialog(act, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen)
+              val root = android.widget.LinearLayout(act).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                  android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                  android.widget.LinearLayout.LayoutParams.MATCH_PARENT
+                )
+                setBackgroundColor(android.graphics.Color.parseColor("#0a101d"))
+              }
+
+              val density = act.resources.displayMetrics.density
+              val header = android.widget.LinearLayout(act).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                  android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                  (48 * density).toInt()
+                )
+                setBackgroundColor(android.graphics.Color.parseColor("#0f172a"))
+                setPadding((16 * density).toInt(), 0, (12 * density).toInt(), 0)
+                gravity = android.view.Gravity.CENTER_VERTICAL
+              }
+
+              val title = android.widget.TextView(act).apply {
+                text = "Sign In to TeraBox"
+                setTextColor(android.graphics.Color.WHITE)
+                textSize = 15f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+              }
+              header.addView(title)
+
+              fun stopPoll() {
+                pollRunnable?.let { pollHandler?.removeCallbacks(it) }
+                pollRunnable = null
+                pollHandler = null
+              }
+
+              val closeBtn = android.widget.TextView(act).apply {
+                text = "✕ Cancel"
+                setTextColor(android.graphics.Color.parseColor("#94a3b8"))
+                textSize = 13f
+                setPadding((8 * density).toInt(), (6 * density).toInt(), (8 * density).toInt(), (6 * density).toInt())
+                setOnClickListener {
+                  stopPoll()
+                  dialog.dismiss()
+                }
+              }
+              header.addView(closeBtn)
+              root.addView(header)
+
+              val webView = android.webkit.WebView(act).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                  android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                  0,
+                  1.0f
+                )
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.databaseEnabled = true
+                settings.setSupportZoom(true)
+                settings.builtInZoomControls = true
+                settings.displayZoomControls = false
+                settings.userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+              }
+
+              val cm = android.webkit.CookieManager.getInstance()
+              cm.setAcceptCookie(true)
+              cm.setAcceptThirdPartyCookies(webView, true)
+
+              fun checkCookie(): Boolean {
+                try {
+                  val c1 = cm.getCookie("https://www.terabox.app") ?: ""
+                  val c2 = cm.getCookie("https://www.terabox.com") ?: ""
+                  val c3 = cm.getCookie("https://terabox.app") ?: ""
+                  val c4 = cm.getCookie("https://terabox.com") ?: ""
+                  val all = "$c1; $c2; $c3; $c4"
+                  val parts = all.split(";")
+                  for (part in parts) {
+                    val p = part.trim()
+                    if (p.startsWith("ndus=")) {
+                      val token = p.substring(5).trim()
+                      if (token.isNotEmpty() && token != "null" && token != "undefined") {
+                        if (captured.compareAndSet(false, true)) {
+                          stopPoll()
+                          dialog.dismiss()
+                          val escaped = token.replace("\\\\", "\\\\\\\\").replace("'", "\\\\'")
+                          mainView.post {
+                            mainView.evaluateJavascript("window.onTeraboxCookieCaptured && window.onTeraboxCookieCaptured('$escaped')", null)
+                          }
+                          return true
+                        }
+                      }
+                    }
+                  }
+                } catch (e: Exception) {}
+                return false
+              }
+
+              webView.webViewClient = object : android.webkit.WebViewClient() {
+                override fun onPageFinished(v: android.webkit.WebView?, u: String?) {
+                  super.onPageFinished(v, u)
+                  checkCookie()
+                }
+
+                override fun shouldOverrideUrlLoading(v: android.webkit.WebView?, req: android.webkit.WebResourceRequest?): Boolean {
+                  if (checkCookie()) return true
+                  val uriStr = req?.url?.toString() ?: ""
+                  if (!uriStr.startsWith("http://") && !uriStr.startsWith("https://")) {
+                    return true
+                  }
+                  return false
+                }
+              }
+
+              root.addView(webView)
+              dialog.setContentView(root)
+              dialog.setOnDismissListener {
+                stopPoll()
+                if (!captured.get()) {
+                  mainView.post {
+                    mainView.evaluateJavascript("window.onTeraboxLoginDismissed && window.onTeraboxLoginDismissed()", null)
+                  }
+                }
+              }
+
+              pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
+              pollRunnable = object : Runnable {
+                override fun run() {
+                  if (!checkCookie() && dialog.isShowing) {
+                    pollHandler?.postDelayed(this, 500)
+                  }
+                }
+              }
+              pollHandler?.postDelayed(pollRunnable!!, 1000)
+
+              webView.loadUrl("https://www.terabox.app/login")
+              dialog.show()
+            } catch (ex: Exception) {
+              mainView.post {
+                mainView.evaluateJavascript("window.onTeraboxLoginDismissed && window.onTeraboxLoginDismissed()", null)
+              }
+            }
+          }
+        }
+      }
+      webView.addJavascriptInterface(TeraboxLoginBridge(this, webView), "AndroidLogin")
+    } catch (e: Exception) {}
   }
 `;
     const lastBraceIdx = mainActivity.lastIndexOf('}');
     if (lastBraceIdx !== -1) {
-      mainActivity = mainActivity.slice(0, lastBraceIdx) + clipboardMethod + '\n}\n';
-      console.log('Injected AndroidClipboard JavascriptInterface into MainActivity.kt');
+      mainActivity = mainActivity.slice(0, lastBraceIdx) + bridgeMethods + '\n}\n';
+      console.log('Injected AndroidClipboard and AndroidLogin JavascriptInterfaces into MainActivity.kt');
     }
   }
   fs.writeFileSync(mainActivityPath, mainActivity, 'utf8');

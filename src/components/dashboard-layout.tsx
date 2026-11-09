@@ -276,11 +276,28 @@ export function DashboardLayout() {
     let unlistenHealth: (() => void) | undefined;
     let unlistenLoginClosed: (() => void) | undefined;
 
+    // Android native login callback bridge
+    if (typeof window !== "undefined") {
+      (window as any).onTeraboxCookieCaptured = (cookie: string) => {
+        if (cookie) {
+          setTeraboxCookie(cookie);
+          setCookieCapturedSuccess(true);
+          setIsLoggingIn(false);
+          saveTeraboxCookie(cookie).catch(() => {});
+          setTimeout(() => setCookieCapturedSuccess(false), 6000);
+        }
+      };
+      (window as any).onTeraboxLoginDismissed = () => {
+        setIsLoggingIn(false);
+      };
+    }
+
     listen<string>("terabox-cookie-captured", (event) => {
       if (event.payload) {
         setTeraboxCookie(event.payload);
         setCookieCapturedSuccess(true);
         setIsLoggingIn(false);
+        saveTeraboxCookie(event.payload).catch(() => {});
         setTimeout(() => setCookieCapturedSuccess(false), 6000);
       }
     }).then(fn => { unlistenCookie = fn; }).catch(() => {});
@@ -299,6 +316,10 @@ export function DashboardLayout() {
       if (unlistenCookie) unlistenCookie();
       if (unlistenHealth) unlistenHealth();
       if (unlistenLoginClosed) unlistenLoginClosed();
+      if (typeof window !== "undefined") {
+        delete (window as any).onTeraboxCookieCaptured;
+        delete (window as any).onTeraboxLoginDismissed;
+      }
     };
   }, []);
 
@@ -316,10 +337,27 @@ export function DashboardLayout() {
 
   const handleOpenLogin = async () => {
     setIsLoggingIn(true);
+
+    // On Android, launch native in-app login dialog with CookieManager auto-capture
+    if (
+      typeof window !== "undefined" &&
+      (window as any).AndroidLogin &&
+      typeof (window as any).AndroidLogin.openLoginDialog === "function"
+    ) {
+      try {
+        (window as any).AndroidLogin.openLoginDialog();
+      } catch (e) {
+        console.error("Failed to open Android login dialog:", e);
+        setIsLoggingIn(false);
+      }
+      return;
+    }
+
+    // On Desktop, launch WebviewWindow popup
     try {
       const res = await openTeraboxLogin();
       if (res === "opened_external") {
-        // External browser was launched on mobile, don't keep spinning waiting for in-app webview
+        // External browser was launched on mobile fallback, don't keep spinning waiting for in-app webview
         setIsLoggingIn(false);
       }
     } catch (e) {
