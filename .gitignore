@@ -22,6 +22,11 @@ dist-apk
 RELEASE_NOTES.md
 downloaded_videos/
 
+# Keystores & secrets
+*.keystore
+*.jks
+.github/keystore/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

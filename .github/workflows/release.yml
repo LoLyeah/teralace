@@ -264,15 +264,32 @@ jobs:
           git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" debug-android || true
 
       - name: Sign & Package Android APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'teralace123' }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD || 'teralace123' }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'teralace' }}
         run: |
-          keytool -genkey -v -keystore app.keystore -alias teralace -keyalg RSA -keysize 2048 -validity 10000 -storepass teralace123 -keypass teralace123 -dname "CN=TeraLace, OU=App, O=TeraLace, L=City, S=State, C=US"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Loading keystore from ANDROID_KEYSTORE_BASE64 secret..."
+            echo "$KEYSTORE_BASE64" | base64 -d > app.keystore
+          elif [ -f ".github/keystore/release.keystore" ]; then
+            echo "Loading permanent keystore from .github/keystore/release.keystore..."
+            cp .github/keystore/release.keystore app.keystore
+          else
+            echo "ERROR: No permanent keystore found! Please provide ANDROID_KEYSTORE_BASE64 secret or .github/keystore/release.keystore."
+            exit 1
+          fi
+
+          keytool -list -v -keystore app.keystore -storepass "$KS_PASS" | grep -E "Alias name:|Valid from:|Certificate fingerprints:" || true
+
           mkdir -p dist-apk
           APKSIGNER=$(find $ANDROID_HOME/build-tools/ -name apksigner | sort -V | tail -n 1)
           echo "Using apksigner: $APKSIGNER"
           APP_VERSION="${APP_VERSION:-$(node -p "require('./package.json').version")}"
           for f in $(find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk"); do
             echo "Signing $f..."
-            "$APKSIGNER" sign --ks app.keystore --ks-pass pass:teralace123 --ks-key-alias teralace --key-pass pass:teralace123 "$f"
+            "$APKSIGNER" sign --ks app.keystore --ks-pass "pass:$KS_PASS" --ks-key-alias "$KEY_ALIAS" --key-pass "pass:$KEY_PASS" "$f"
             "$APKSIGNER" verify "$f"
             cp "$f" "dist-apk/TeraLace_${APP_VERSION}_universal.apk"
           done
