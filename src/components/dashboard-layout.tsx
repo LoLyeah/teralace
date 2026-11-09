@@ -24,7 +24,7 @@ import {
   getBandwidthLimit, getEndpointStats, pingEndpointHealth, saveApiEndpoints, openDownloadDir, openFile, deleteFileFromDisk, checkForUpdates, saveTeraboxCookie, openTeraboxLogin, exitApp
 } from "../lib/api";
 import { 
-  updateDownloadNotification, notifyDownloadComplete, clearDownloadNotification 
+  updateDownloadNotification, notifyDownloadComplete, clearDownloadNotification, ensureNotificationPermission 
 } from "../lib/notifications";
 import { readClipboardText } from "../lib/clipboard";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -58,6 +58,15 @@ export function DashboardLayout() {
         if (v) setCurrentAppVersion(v);
       })
       .catch(() => {});
+
+    // Proactively request notification permission on app launch (Android 13+)
+    const notifTimer = setTimeout(() => {
+      ensureNotificationPermission().catch(err => {
+        console.warn("Initial notification permission request failed:", err);
+      });
+    }, 600);
+
+    return () => clearTimeout(notifTimer);
   }, []);
 
   const [url, setUrl] = useState("");
