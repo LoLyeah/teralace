@@ -398,7 +398,20 @@ async fn resume_all_downloads() -> Result<String, String> {
 #[tauri::command]
 async fn open_download_dir(handle: tauri::AppHandle, path: Option<String>) -> Result<(), String> {
     let target = if let Some(p) = path {
-        p
+        if !p.trim().is_empty() {
+            p
+        } else {
+            let settings = get_settings(&handle);
+            if !settings.download_dir.is_empty() {
+                settings.download_dir
+            } else {
+                DOWNLOAD_MANAGER
+                    .get_default_dir()
+                    .await
+                    .to_string_lossy()
+                    .to_string()
+            }
+        }
     } else {
         let settings = get_settings(&handle);
         if !settings.download_dir.is_empty() {
@@ -412,10 +425,23 @@ async fn open_download_dir(handle: tauri::AppHandle, path: Option<String>) -> Re
         }
     };
 
+    // Ensure the folder exists on disk before launching file explorer, otherwise Windows defaults to Documents
+    let target_path = std::path::PathBuf::from(&target);
+    if !target_path.exists() {
+        let _ = tokio::fs::create_dir_all(&target_path).await;
+    }
+
+    let final_target = if target_path.exists() {
+        target_path
+    } else {
+        dirs::download_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+    };
+
     #[cfg(target_os = "windows")]
     {
+        let win_path = final_target.to_string_lossy().replace('/', "\\");
         std::process::Command::new("explorer")
-            .arg(&target)
+            .arg(&win_path)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -423,7 +449,7 @@ async fn open_download_dir(handle: tauri::AppHandle, path: Option<String>) -> Re
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(&target)
+            .arg(&final_target)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -431,7 +457,7 @@ async fn open_download_dir(handle: tauri::AppHandle, path: Option<String>) -> Re
     #[cfg(all(target_os = "linux", not(target_os = "android")))]
     {
         std::process::Command::new("xdg-open")
-            .arg(&target)
+            .arg(&final_target)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -440,7 +466,7 @@ async fn open_download_dir(handle: tauri::AppHandle, path: Option<String>) -> Re
     {
         use tauri::Manager;
         if let Some(window) = handle.get_webview_window("main") {
-            let escaped = target.replace('\\', "\\\\").replace('\'', "\\'");
+            let escaped = final_target.to_string_lossy().replace('\\', "\\\\").replace('\'', "\\'");
             let _ = window.eval(&format!("window.AndroidOpener && window.AndroidOpener.openFolder('{}')", escaped));
         }
     }
@@ -457,8 +483,9 @@ async fn open_file(handle: tauri::AppHandle, path: String) -> Result<(), String>
 
     #[cfg(target_os = "windows")]
     {
+        let win_path = path.replace('/', "\\");
         let _ = std::process::Command::new("cmd")
-            .args(["/c", "start", "", &path])
+            .args(["/c", "start", "", &win_path])
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
