@@ -1246,12 +1246,18 @@ export function DashboardLayout() {
 
       {/* Video/Audio Stream Preview Modal */}
       {previewMediaUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-200">
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setPreviewMediaUrl(null);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-200"
+        >
           <div 
             role="dialog"
             aria-modal="true"
             aria-labelledby="preview-modal-title"
-            className="bg-background border border-border/80 rounded-2xl overflow-hidden w-full max-w-[820px] max-h-[90dvh] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200"
+            tabIndex={-1}
+            className="bg-background border border-border/80 rounded-2xl overflow-hidden w-full max-w-[820px] max-h-[90dvh] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 outline-none focus:outline-none"
           >
             <div className="flex items-center justify-between p-3 sm:p-3.5 px-3.5 sm:px-4 border-b bg-card">
               <div className="flex items-center gap-2 min-w-0 pr-2">
@@ -1285,12 +1291,18 @@ export function DashboardLayout() {
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-200">
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowSettings(false);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-200"
+        >
           <div 
             role="dialog"
             aria-modal="true"
             aria-labelledby="settings-modal-title"
-            className="bg-background border border-border/80 rounded-2xl shadow-2xl w-full max-w-[580px] h-[580px] max-h-[92dvh] sm:max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
+            tabIndex={-1}
+            className="bg-background border border-border/80 rounded-2xl shadow-2xl w-full max-w-[580px] h-[580px] max-h-[92dvh] sm:max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 outline-none focus:outline-none"
           >
             
             {/* Modal Header */}
@@ -2202,12 +2214,18 @@ export function DashboardLayout() {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDeleteConfirmation(null);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+        >
           <div 
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-dialog-title"
-            className="bg-card border border-border/80 rounded-2xl p-4 sm:p-5 max-w-sm sm:max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-150 space-y-4"
+            tabIndex={-1}
+            className="bg-card border border-border/80 rounded-2xl p-4 sm:p-5 max-w-sm sm:max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-150 space-y-4 outline-none focus:outline-none"
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-destructive/15 text-destructive flex items-center justify-center shrink-0">

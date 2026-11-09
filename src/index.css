@@ -200,8 +200,10 @@
 }
 
 @layer base {
-  * {
+  *, ::before, ::after {
     @apply border-border;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
   }
   html, body {
     @apply bg-background text-foreground;
@@ -210,6 +212,7 @@
     text-underline-offset: 3px;
     user-select: none;
     -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
   ::selection {
     background-color: hsl(var(--primary) / 0.25);
