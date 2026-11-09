@@ -574,18 +574,36 @@ if (fs.existsSync(mainActivityPath)) {
       }
       webView.addJavascriptInterface(TeraboxLoginBridge(this, webView), "AndroidLogin")
     } catch (e: Exception) {}
+
+    try {
+      class TeralaceTheme(private val act: android.app.Activity) {
+        @android.webkit.JavascriptInterface
+        fun getMonetColors(): String {
+          return try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+              val color = act.getColor(android.R.color.system_accent1_500)
+              val r = (color shr 16) and 0xff
+              val g = (color shr 8) and 0xff
+              val b = color and 0xff
+              "{\"r\":$r,\"g\":$g,\"b\":$b}"
+            } else ""
+          } catch (e: Exception) { "" }
+        }
+      }
+      webView.addJavascriptInterface(TeralaceTheme(this), "AndroidTheme")
+    } catch (e: Exception) {}
   }
 `;
 
   if (mainActivity.includes('override fun onWebViewCreate')) {
     const onWebIdx = mainActivity.indexOf('override fun onWebViewCreate');
     mainActivity = mainActivity.slice(0, onWebIdx) + bridgeMethods.trimStart() + '\n}\n';
-    console.log('Updated existing onWebViewCreate with AndroidClipboard, AndroidOpener, and AndroidLogin JavascriptInterfaces');
+    console.log('Updated existing onWebViewCreate with AndroidClipboard, AndroidOpener, AndroidTheme, and AndroidLogin JavascriptInterfaces');
   } else {
     const lastBraceIdx = mainActivity.lastIndexOf('}');
     if (lastBraceIdx !== -1) {
       mainActivity = mainActivity.slice(0, lastBraceIdx) + bridgeMethods + '\n}\n';
-      console.log('Injected AndroidClipboard, AndroidOpener, and AndroidLogin JavascriptInterfaces into MainActivity.kt');
+      console.log('Injected AndroidClipboard, AndroidOpener, AndroidTheme, and AndroidLogin JavascriptInterfaces into MainActivity.kt');
     }
   }
   fs.writeFileSync(mainActivityPath, mainActivity, 'utf8');

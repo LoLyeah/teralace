@@ -66,6 +66,31 @@ function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
 
 function getSystemAccentColor(): RGB | null {
   if (typeof window === "undefined" || typeof document === "undefined") return null
+
+  // 1. Android Native Monet Engine (Android 12+ Wallpaper dynamic colors)
+  if (
+    (window as any).AndroidTheme &&
+    typeof (window as any).AndroidTheme.getMonetColors === "function"
+  ) {
+    try {
+      const json = (window as any).AndroidTheme.getMonetColors()
+      if (json && typeof json === "string") {
+        const parsed = JSON.parse(json)
+        if (
+          typeof parsed.r === "number" &&
+          typeof parsed.g === "number" &&
+          typeof parsed.b === "number" &&
+          (parsed.r !== 0 || parsed.g !== 0 || parsed.b !== 0)
+        ) {
+          return { r: parsed.r, g: parsed.g, b: parsed.b }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to retrieve Android Monet colors:", e)
+    }
+  }
+
+  // 2. Desktop CSS AccentColor keyword (Windows 11 / macOS system accent)
   try {
     const el = document.createElement("div")
     el.style.color = "AccentColor"
@@ -284,8 +309,19 @@ export function ThemeProvider({
       const isDark = window.document.documentElement.classList.contains("dark")
       applyDynamicTheme(isDark, materialYou)
     }
+
+    // Capture Android bridge initialization if attached slightly after initial DOM render
+    const t1 = setTimeout(update, 150)
+    const t2 = setTimeout(update, 600)
+
     window.addEventListener("focus", update)
-    return () => window.removeEventListener("focus", update)
+    document.addEventListener("visibilitychange", update)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      window.removeEventListener("focus", update)
+      document.removeEventListener("visibilitychange", update)
+    }
   }, [palette, materialYou])
 
   useEffect(() => {
