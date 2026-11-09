@@ -10,7 +10,8 @@ import {
   Clipboard, AlertCircle, CheckCircle2, Film, RefreshCw, Zap,
   Layers, HardDrive, Info, ExternalLink, ArrowDown, Terminal,
   Sparkles, AlertTriangle, Check, Bookmark, Smartphone,
-  Sun, Moon, Monitor, ChevronDown, ChevronUp, Code2, Power
+  Sun, Moon, Monitor, ChevronDown, ChevronUp, Code2, Power,
+  Bell, BellOff
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -24,7 +25,8 @@ import {
   getBandwidthLimit, getEndpointStats, pingEndpointHealth, saveApiEndpoints, openDownloadDir, openFile, deleteFileFromDisk, checkForUpdates, saveTeraboxCookie, openTeraboxLogin, exitApp
 } from "../lib/api";
 import { 
-  updateDownloadNotification, notifyDownloadComplete, clearDownloadNotification, ensureNotificationPermission 
+  updateDownloadNotification, notifyDownloadComplete, clearDownloadNotification, ensureNotificationPermission,
+  checkNotificationPermission, openAppNotificationSettings, requestAppNotificationPermission
 } from "../lib/notifications";
 import { readClipboardText } from "../lib/clipboard";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -51,6 +53,31 @@ const SUPPORTED_MIRRORS = [
 export function DashboardLayout() {
   const [currentAppVersion, setCurrentAppVersion] = useState(defaultAppVersion);
 
+  const [hasNotifPermission, setHasNotifPermission] = useState<boolean | null>(null);
+  const [dismissedNotifBanner, setDismissedNotifBanner] = useState(false);
+
+  const checkPermissions = useCallback(async () => {
+    try {
+      const granted = await checkNotificationPermission();
+      setHasNotifPermission(granted);
+      return granted;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const handleEnableNotifications = useCallback(async () => {
+    try {
+      const granted = await requestAppNotificationPermission();
+      setHasNotifPermission(granted);
+      if (granted) {
+        setDismissedNotifBanner(false);
+      }
+    } catch (e) {
+      console.warn("Failed to request notification permission:", e);
+    }
+  }, []);
+
   useEffect(() => {
     import('@tauri-apps/api/app')
       .then(m => m.getVersion())
@@ -59,15 +86,37 @@ export function DashboardLayout() {
       })
       .catch(() => {});
 
-    // Proactively request notification permission on app launch (Android 13+)
+    // Proactively request notification permission on app launch (Android 13+) and check status
+    checkPermissions();
     const notifTimer = setTimeout(() => {
-      ensureNotificationPermission().catch(err => {
-        console.warn("Initial notification permission request failed:", err);
-      });
+      ensureNotificationPermission()
+        .then(granted => {
+          setHasNotifPermission(granted);
+        })
+        .catch(err => {
+          console.warn("Initial notification permission request failed:", err);
+          setHasNotifPermission(false);
+        });
     }, 600);
 
-    return () => clearTimeout(notifTimer);
-  }, []);
+    // Re-check notification permissions when user returns to app (e.g. from Android settings)
+    const handleFocus = () => {
+      checkPermissions();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkPermissions();
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      clearTimeout(notifTimer);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [checkPermissions]);
 
   const [url, setUrl] = useState("");
   const [isFetching, setIsFetching] = useState(false);
@@ -1185,6 +1234,51 @@ export function DashboardLayout() {
               </div>
             </CardHeader>
 
+            {/* Notification Permission Banner */}
+            {hasNotifPermission === false && !dismissedNotifBanner && (
+              <div className="mx-3 sm:mx-4 mt-3 p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200/90 flex items-start gap-3 text-xs animate-in fade-in slide-in-from-top-2 duration-200 shrink-0">
+                <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
+                  <BellOff className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-foreground text-xs">
+                      Enable Notifications for Background Downloads
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setDismissedNotifBanner(true)}
+                      className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+                      aria-label="Dismiss notification banner"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    Android suspends active downloads and background network transfers when your screen turns off or when you switch apps unless notifications are enabled to keep the download service active.
+                  </p>
+                  <div className="pt-0.5 flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="default"
+                      onClick={handleEnableNotifications}
+                      className="h-7 text-xs px-3 bg-amber-600 hover:bg-amber-500 text-white font-medium shadow-sm gap-1.5"
+                    >
+                      <Bell className="h-3.5 w-3.5" />
+                      Enable Notifications
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => setDismissedNotifBanner(true)}
+                      className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 px-1"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Queue List Content */}
             <CardContent className="flex-1 overflow-y-auto p-0">
               {queue.length === 0 ? (
@@ -1616,6 +1710,54 @@ export function DashboardLayout() {
                           🎨 <strong>Material You Dynamic:</strong> Automatically extracts dynamic tones from your device&apos;s wallpaper on Android 12+ (Monet engine) or system accent color on Windows 11/macOS, harmonizing buttons, surfaces, and borders.
                         </p>
                       )}
+                    </div>
+
+                    {/* System Notifications Configuration */}
+                    <div className="space-y-2 pt-2 border-t border-border/40">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className={cn(
+                            "p-2 rounded-xl shrink-0",
+                            hasNotifPermission ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"
+                          )}>
+                            {hasNotifPermission ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+                          </div>
+                          <div>
+                            <span className="font-semibold text-xs text-foreground block">System Notifications</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {hasNotifPermission ? "Active • Background downloads enabled" : "Disabled • Background downloads may be stopped"}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={cn(
+                          "text-[10px] font-medium px-2 py-0.5 rounded-full border",
+                          hasNotifPermission 
+                            ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" 
+                            : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                        )}>
+                          {hasNotifPermission ? "Allowed" : "Disabled"}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {hasNotifPermission
+                          ? "Notification permission is granted. Teralace displays real-time download speeds, ETA, and completion alerts in your notification shade, keeping background tasks active."
+                          : "Notifications are essential for keeping downloads running reliably. On Android, the OS automatically freezes or terminates active background downloads when your screen turns off unless notifications are allowed."}
+                      </p>
+                      <div className="pt-0.5">
+                        <Button
+                          type="button"
+                          variant={hasNotifPermission ? "outline" : "default"}
+                          size="sm"
+                          className={cn(
+                            "h-8 text-xs px-3 gap-1.5",
+                            !hasNotifPermission && "bg-amber-600 hover:bg-amber-500 text-white font-medium"
+                          )}
+                          onClick={hasNotifPermission ? openAppNotificationSettings : handleEnableNotifications}
+                        >
+                          <Bell className="h-3.5 w-3.5" />
+                          {hasNotifPermission ? "Open Notification Settings" : "Enable Notifications"}
+                        </Button>
+                      </div>
                     </div>
 
                   </div>

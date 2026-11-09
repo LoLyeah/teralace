@@ -412,6 +412,42 @@ if (fs.existsSync(mainActivityPath)) {
             )
           } catch (e: Exception) {}
         }
+
+        @android.webkit.JavascriptInterface
+        fun areNotificationsEnabled(): Boolean {
+          return try {
+            val nm = act.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            nm?.areNotificationsEnabled() ?: false
+          } catch (e: Exception) {
+            true
+          }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun openNotificationSettings() {
+          act.runOnUiThread {
+            try {
+              val intent = android.content.Intent().apply {
+                action = android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, act.packageName)
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+              }
+              act.startActivity(intent)
+            } catch (e1: Exception) {
+              try {
+                val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                  data = android.net.Uri.fromParts("package", act.packageName, null)
+                  flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                act.startActivity(intent)
+              } catch (e2: Exception) {
+                try {
+                  android.widget.Toast.makeText(act, "Unable to open notification settings", android.widget.Toast.LENGTH_SHORT).show()
+                } catch (e3: Exception) {}
+              }
+            }
+          }
+        }
       }
       webView.addJavascriptInterface(TeralaceOpener(this), "AndroidOpener")
     } catch (e: Exception) {}

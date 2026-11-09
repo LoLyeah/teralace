@@ -15,12 +15,100 @@ export const DOWNLOAD_CHANNEL_ID = "teralace_downloads";
 
 let channelCreated = false;
 
+/**
+ * Checks whether notifications are currently enabled for the application.
+ * On Android, queries the native NotificationManager for accurate OS-level status.
+ */
+export async function checkNotificationPermission(): Promise<boolean> {
+  try {
+    if (
+      typeof window !== "undefined" &&
+      (window as any).AndroidOpener &&
+      typeof (window as any).AndroidOpener.areNotificationsEnabled === "function"
+    ) {
+      return (window as any).AndroidOpener.areNotificationsEnabled();
+    }
+    return await isPermissionGranted();
+  } catch (e) {
+    console.warn("checkNotificationPermission failed:", e);
+    return false;
+  }
+}
+
+/**
+ * Opens system notification settings for this application.
+ * On Android, navigates to the system's App Notification Settings page.
+ */
+export async function openAppNotificationSettings(): Promise<void> {
+  try {
+    if (
+      typeof window !== "undefined" &&
+      (window as any).AndroidOpener &&
+      typeof (window as any).AndroidOpener.openNotificationSettings === "function"
+    ) {
+      (window as any).AndroidOpener.openNotificationSettings();
+      return;
+    }
+
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+  } catch (e) {
+    console.warn("openAppNotificationSettings failed:", e);
+  }
+}
+
+/**
+ * Requests notification permission from the system.
+ * If the user has already denied or disabled notifications in OS settings,
+ * redirects them directly to the system settings page so they can enable it.
+ */
+export async function requestAppNotificationPermission(): Promise<boolean> {
+  try {
+    let granted = await checkNotificationPermission();
+    if (granted) return true;
+
+    try {
+      const res = await requestPermission();
+      granted = res === "granted";
+    } catch {}
+
+    const recheck = await checkNotificationPermission();
+    if (recheck || granted) {
+      if (!channelCreated) {
+        try {
+          await createChannel({
+            id: DOWNLOAD_CHANNEL_ID,
+            name: "Download Progress",
+            description: "Persistent background download notifications and task progress",
+            importance: Importance.Low,
+            visibility: Visibility.Public,
+          });
+          channelCreated = true;
+        } catch {}
+      }
+      return true;
+    }
+
+    // Permission was denied or disabled at OS level; direct user to system settings
+    await openAppNotificationSettings();
+    return false;
+  } catch (e) {
+    console.warn("requestAppNotificationPermission failed:", e);
+    await openAppNotificationSettings();
+    return false;
+  }
+}
+
 export async function ensureNotificationPermission(): Promise<boolean> {
   try {
-    let granted = await isPermissionGranted();
+    let granted = await checkNotificationPermission();
     if (!granted) {
-      const permission = await requestPermission();
-      granted = permission === "granted";
+      try {
+        const permission = await requestPermission();
+        granted = permission === "granted";
+      } catch {}
+      granted = await checkNotificationPermission();
     }
 
     if (granted && !channelCreated) {
