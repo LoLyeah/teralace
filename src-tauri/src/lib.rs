@@ -521,39 +521,100 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
 async fn check_for_updates() -> Result<UpdateCheckResult, String> {
     let current_version = env!("CARGO_PKG_VERSION").to_string();
     let client = reqwest::Client::builder()
-        .user_agent("Teralace-Update-Checker")
+        .user_agent(format!("Teralace-Update-Checker/{} (https://github.com/LoLyeah/teralace)", current_version))
         .timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::limited(5))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    let res = client
+    let mut api_succeeded = false;
+    let mut tag_name = String::new();
+    let mut release_url = "https://github.com/LoLyeah/teralace/releases".to_string();
+    let mut release_name: Option<String> = None;
+    let mut release_notes: Option<String> = None;
+    let mut published_at: Option<String> = None;
+
+    // 1. Try official GitHub API first
+    if let Ok(res) = client
         .get("https://api.github.com/repos/LoLyeah/teralace/releases/latest")
+        .header(reqwest::header::ACCEPT, "application/vnd.github.v3+json")
         .send()
         .await
-        .map_err(|e| format!("Network error checking for updates: {}", e))?;
-
-    if !res.status().is_success() {
-        return Err(format!("GitHub API returned status: {}", res.status()));
+    {
+        if res.status().is_success() {
+            if let Ok(json) = res.json::<serde_json::Value>().await {
+                if let Some(t) = json["tag_name"].as_str() {
+                    tag_name = t.to_string();
+                    release_url = json["html_url"]
+                        .as_str()
+                        .unwrap_or("https://github.com/LoLyeah/teralace/releases")
+                        .to_string();
+                    release_name = json["name"].as_str().map(|s| s.to_string());
+                    release_notes = json["body"].as_str().map(|s| s.to_string());
+                    published_at = json["published_at"].as_str().map(|s| s.to_string());
+                    api_succeeded = true;
+                }
+            }
+        } else {
+            log::warn!(
+                "[UpdateCheck] GitHub API returned status: {} (rate-limited or blocked). Falling back to web redirect.",
+                res.status()
+            );
+        }
     }
 
-    let json: serde_json::Value = res
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse release info: {}", e))?;
+    // 2. Fallback: Probing web redirect at /releases/latest (not subject to GitHub REST API 60 req/hr rate limit)
+    if !api_succeeded {
+        log::info!("[UpdateCheck] Probing web redirect at https://github.com/LoLyeah/teralace/releases/latest");
+        if let Ok(web_res) = client
+            .get("https://github.com/LoLyeah/teralace/releases/latest")
+            .send()
+            .await
+        {
+            let final_url = web_res.url().as_str().to_string();
+            if let Some(pos) = final_url.rfind("/tag/") {
+                let raw_tag = &final_url[pos + 5..];
+                let clean_tag = raw_tag.split(['/', '?', '#']).next().unwrap_or("").trim();
+                if !clean_tag.is_empty() {
+                    tag_name = clean_tag.to_string();
+                    release_url = final_url.clone();
+                    release_name = Some(format!("Teralace {}", clean_tag));
+                    api_succeeded = true;
+                }
+            }
+        }
+    }
 
-    let tag_name = json["tag_name"]
-        .as_str()
-        .ok_or_else(|| "Missing tag_name in release response".to_string())?;
+    // 3. Fallback: Probing GitHub releases.atom RSS feed (Fastly CDN cached, zero API rate limits)
+    if !api_succeeded {
+        log::info!("[UpdateCheck] Probing GitHub releases.atom feed");
+        if let Ok(atom_res) = client
+            .get("https://github.com/LoLyeah/teralace/releases.atom")
+            .send()
+            .await
+        {
+            if atom_res.status().is_success() {
+                if let Ok(xml) = atom_res.text().await {
+                    if let Some(idx) = xml.find("/releases/tag/") {
+                        let slice = &xml[idx + 14..];
+                        let tag = slice.split(['"', '\'', '<', '>']).next().unwrap_or("").trim();
+                        if !tag.is_empty() {
+                            tag_name = tag.to_string();
+                            release_url = format!("https://github.com/LoLyeah/teralace/releases/tag/{}", tag);
+                            release_name = Some(format!("Teralace {}", tag));
+                            api_succeeded = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !api_succeeded || tag_name.is_empty() {
+        return Err("Unable to fetch update info from GitHub (rate-limited or network offline). Please check https://github.com/LoLyeah/teralace/releases directly.".to_string());
+    }
 
     let clean_latest = tag_name.trim_start_matches('v').to_string();
-    let release_url = json["html_url"]
-        .as_str()
-        .unwrap_or("https://github.com/LoLyeah/teralace/releases")
-        .to_string();
-    let release_name = json["name"].as_str().map(|s| s.to_string());
-    let release_notes = json["body"].as_str().map(|s| s.to_string());
-    let published_at = json["published_at"].as_str().map(|s| s.to_string());
-
     let update_available = is_newer_version(&clean_latest, &current_version);
 
     Ok(UpdateCheckResult {
