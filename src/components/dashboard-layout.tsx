@@ -274,6 +274,7 @@ export function DashboardLayout() {
   useEffect(() => {
     let unlistenCookie: (() => void) | undefined;
     let unlistenHealth: (() => void) | undefined;
+    let unlistenLoginClosed: (() => void) | undefined;
 
     listen<string>("terabox-cookie-captured", (event) => {
       if (event.payload) {
@@ -290,9 +291,14 @@ export function DashboardLayout() {
       }
     }).then(fn => { unlistenHealth = fn; }).catch(() => {});
 
+    listen("terabox-login-closed", () => {
+      setIsLoggingIn(false);
+    }).then(fn => { unlistenLoginClosed = fn; }).catch(() => {});
+
     return () => {
       if (unlistenCookie) unlistenCookie();
       if (unlistenHealth) unlistenHealth();
+      if (unlistenLoginClosed) unlistenLoginClosed();
     };
   }, []);
 
@@ -1830,23 +1836,36 @@ export function DashboardLayout() {
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
                       Opens a secure login window. Once signed in via Google, Email, or Phone, Teralace automatically extracts your session token and saves it without needing DevTools.
                     </p>
-                    <Button 
-                      onClick={handleOpenLogin} 
-                      disabled={isLoggingIn}
-                      className="w-full sm:w-auto h-8 px-4 text-xs font-semibold flex items-center gap-2 shadow-sm"
-                    >
-                      {isLoggingIn ? (
-                        <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Waiting for login... (Log in in the popup)
-                        </>
-                      ) : (
-                        <>
-                          <Key className="h-3.5 w-3.5" />
-                          Sign In with TeraBox
-                        </>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button 
+                        onClick={handleOpenLogin} 
+                        disabled={isLoggingIn}
+                        className="w-full sm:w-auto h-8 px-4 text-xs font-semibold flex items-center gap-2 shadow-sm"
+                      >
+                        {isLoggingIn ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Waiting for login... (Log in in the popup)
+                          </>
+                        ) : (
+                          <>
+                            <Key className="h-3.5 w-3.5" />
+                            Sign In with TeraBox
+                          </>
+                        )}
+                      </Button>
+                      {isLoggingIn && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => setIsLoggingIn(false)}
+                          title="Cancel waiting for login"
+                        >
+                          <X className="h-3.5 w-3.5 mr-1" /> Cancel
+                        </Button>
                       )}
-                    </Button>
+                    </div>
                   </div>
 
                   {/* Manual Cookie Input with Paste */}

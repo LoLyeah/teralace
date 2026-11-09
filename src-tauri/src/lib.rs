@@ -236,8 +236,23 @@ async fn open_terabox_login(handle: tauri::AppHandle) -> Result<String, String> 
             });
 
         match builder.build() {
-            Ok(_) => log::info!("[open_terabox_login] TeraBox login window launched successfully"),
-            Err(e) => log::error!("[open_terabox_login] Failed to launch login window: {}", e),
+            Ok(win) => {
+                log::info!("[open_terabox_login] TeraBox login window launched successfully");
+                let close_handle = h.clone();
+                win.on_window_event(move |event| {
+                    match event {
+                        tauri::WindowEvent::Destroyed | tauri::WindowEvent::CloseRequested { .. } => {
+                            log::info!("[open_terabox_login] Login window closed/destroyed");
+                            let _ = close_handle.emit("terabox-login-closed", ());
+                        }
+                        _ => {}
+                    }
+                });
+            }
+            Err(e) => {
+                log::error!("[open_terabox_login] Failed to launch login window: {}", e);
+                let _ = h.emit("terabox-login-closed", ());
+            }
         }
     });
 
