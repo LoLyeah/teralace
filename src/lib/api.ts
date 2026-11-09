@@ -199,3 +199,7 @@ export async function setDebugLogMode(enabled: boolean): Promise<void> {
 export async function getDebugLogMode(): Promise<boolean> {
   return invoke<boolean>("get_debug_log_mode");
 }
+
+export async function exitApp(): Promise<void> {
+  return invoke<void>("exit_app");
+}

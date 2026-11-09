@@ -246,9 +246,22 @@ async fn open_terabox_login(handle: tauri::AppHandle) -> Result<String, String> 
 
 #[cfg(not(desktop))]
 #[tauri::command]
-async fn open_terabox_login(_handle: tauri::AppHandle) -> Result<String, String> {
-    let _ = tauri_plugin_opener::open_url("https://www.terabox.app/login", None::<&str>);
+async fn open_terabox_login(handle: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_opener::OpenerExt;
+    let _ = handle.opener().open_url("https://www.terabox.app/login", None::<&str>);
     Ok("opened_external".to_string())
+}
+
+#[tauri::command]
+async fn exit_app(handle: tauri::AppHandle) -> Result<(), String> {
+    log::info!("[App] Explicit quit requested by user");
+    DOWNLOAD_MANAGER.cancel_all().await;
+    handle.exit(0);
+    #[cfg(target_os = "android")]
+    {
+        std::process::exit(0);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -799,6 +812,7 @@ pub fn run() {
             log_client_message,
             set_debug_log_mode,
             get_debug_log_mode,
+            exit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

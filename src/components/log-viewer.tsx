@@ -21,7 +21,13 @@ export function LogViewer({ className }: LogViewerProps) {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isDebugMode, setIsDebugMode] = useState<boolean>(false);
   const [autoScroll, setAutoScroll] = useState<boolean>(false);
-  const [isLoggingActive, setIsLoggingActive] = useState<boolean>(false);
+  const [isLoggingActive, setIsLoggingActive] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("teralace_live_logs") === "true";
+    } catch {
+      return false;
+    }
+  });
   const [copied, setCopied] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
@@ -67,6 +73,9 @@ export function LogViewer({ className }: LogViewerProps) {
   const handleToggleLogging = () => {
     const nextState = !isLoggingActive;
     setIsLoggingActive(nextState);
+    try {
+      localStorage.setItem("teralace_live_logs", String(nextState));
+    } catch {}
     if (nextState) {
       fetchLogs();
     }
@@ -149,10 +158,10 @@ export function LogViewer({ className }: LogViewerProps) {
               isLoggingActive && "bg-emerald-600 hover:bg-emerald-700 text-white"
             )}
             onClick={handleToggleLogging}
-            title={isLoggingActive ? "Pause live logging" : "Start collecting logs"}
+            title={isLoggingActive ? "Pause live auto-refresh" : "Stream live logs"}
           >
             {isLoggingActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 text-emerald-500" />}
-            <span>{isLoggingActive ? "Logging Active" : "Enable Logging"}</span>
+            <span>{isLoggingActive ? "Auto-Refresh On" : "Auto-Refresh Off"}</span>
           </Button>
 
           <Button
@@ -267,9 +276,9 @@ export function LogViewer({ className }: LogViewerProps) {
         {!isLoggingActive ? (
           <div className="h-full min-h-[180px] flex flex-col items-center justify-center text-zinc-500 space-y-2 select-none">
             <Terminal className="h-8 w-8 opacity-30 text-zinc-400" />
-            <p className="text-xs font-semibold text-zinc-300">Live Logging is Disabled</p>
+            <p className="text-xs font-semibold text-zinc-300">Live Auto-Refresh is Paused</p>
             <p className="text-[11px] text-zinc-500 max-w-sm text-center leading-relaxed">
-              Log collection and background polling are paused by default to save system resources. Click below to start capturing logs.
+              System diagnostics are continuously recorded in the background buffer. Live UI polling is paused to save battery and resources. Click below to view live logs.
             </p>
             <Button
               type="button"
@@ -279,7 +288,7 @@ export function LogViewer({ className }: LogViewerProps) {
               onClick={handleToggleLogging}
             >
               <Play className="h-3 w-3 text-emerald-400" />
-              <span>Enable Logging</span>
+              <span>Resume Live Stream</span>
             </Button>
           </div>
         ) : filteredLogs.length === 0 ? (

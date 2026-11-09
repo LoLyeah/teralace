@@ -823,6 +823,14 @@ impl DownloadManager {
         Ok(gid.to_string())
     }
 
+    pub async fn cancel_all(&self) {
+        let mut map = self.tasks.write().await;
+        for task in map.values() {
+            task.cancel_flag.store(true, Ordering::Relaxed);
+        }
+        map.clear();
+    }
+
     pub async fn get_all_downloads(&self) -> Result<Vec<DownloadInfo>, String> {
         let map = self.tasks.read().await;
         let mut list = Vec::new();

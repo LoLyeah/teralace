@@ -10,7 +10,7 @@ import {
   Clipboard, AlertCircle, CheckCircle2, Film, RefreshCw, Zap,
   Layers, HardDrive, Info, ExternalLink, ArrowDown, Terminal,
   Sparkles, AlertTriangle, Check, Bookmark, Smartphone,
-  Sun, Moon, Monitor, ChevronDown, ChevronUp, Code2
+  Sun, Moon, Monitor, ChevronDown, ChevronUp, Code2, Power
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -21,8 +21,12 @@ import { useTheme, THEME_PALETTES } from "./theme-provider";
 import { LogViewer } from "./log-viewer";
 import { 
   getTeraboxInfo, getFolderContents, getFolderFilesRecursive, formatBytes, formatSpeed, formatEta, stopAria2, setBandwidthLimit, 
-  getBandwidthLimit, getEndpointStats, pingEndpointHealth, saveApiEndpoints, openDownloadDir, openFile, deleteFileFromDisk, checkForUpdates, saveTeraboxCookie, openTeraboxLogin
+  getBandwidthLimit, getEndpointStats, pingEndpointHealth, saveApiEndpoints, openDownloadDir, openFile, deleteFileFromDisk, checkForUpdates, saveTeraboxCookie, openTeraboxLogin, exitApp
 } from "../lib/api";
+import { 
+  updateDownloadNotification, notifyDownloadComplete, clearDownloadNotification 
+} from "../lib/notifications";
+import { readClipboardText } from "../lib/clipboard";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { loadSettings, saveSettings, DEFAULT_ENDPOINTS } from "../lib/settings";
 import { 
@@ -307,7 +311,11 @@ export function DashboardLayout() {
   const handleOpenLogin = async () => {
     setIsLoggingIn(true);
     try {
-      await openTeraboxLogin();
+      const res = await openTeraboxLogin();
+      if (res === "opened_external") {
+        // External browser was launched on mobile, don't keep spinning waiting for in-app webview
+        setIsLoggingIn(false);
+      }
     } catch (e) {
       console.error("Failed to open TeraBox login:", e);
       setIsLoggingIn(false);
@@ -405,6 +413,52 @@ export function DashboardLayout() {
     };
   }, []);
 
+  // Explicit Application Quit Handler (Mobile & Desktop)
+  const handleQuitApp = useCallback(async () => {
+    const yes = await confirm(
+      "Are you sure you want to quit Teralace completely?\nActive downloads will be stopped and all background tasks terminated.",
+      { title: 'Quit Teralace', kind: 'warning', okLabel: 'Quit Completely', cancelLabel: 'Cancel' }
+    );
+    if (yes) {
+      try {
+        await clearDownloadNotification();
+      } catch {}
+      try {
+        await stopAria2();
+      } catch {}
+      try {
+        await exitApp();
+      } catch (e) {
+        console.error("Backend exitApp failed, falling back to process exit:", e);
+        try {
+          await exit(0);
+        } catch {}
+      }
+    }
+  }, []);
+
+  // Android / Mobile Background Ongoing Notification & Wake Management
+  const prevActiveCountRef = useRef(0);
+  useEffect(() => {
+    if (activeDownloadingCount > 0) {
+      const activeItems = queue.filter(item => item.status === 'downloading');
+      const totalDownloaded = activeItems.reduce((acc, item) => acc + (item.downloaded || 0), 0);
+      const totalBytes = activeItems.reduce((acc, item) => acc + (item.total || 0), 0);
+      const progress = totalBytes > 0 ? (totalDownloaded / totalBytes) * 100 : 0;
+
+      updateDownloadNotification(activeDownloadingCount, totalSpeed, progress);
+    } else {
+      if (prevActiveCountRef.current > 0) {
+        const completedItems = queue.filter(item => item.status === 'completed');
+        const lastFinished = completedItems.length > 0 ? completedItems[completedItems.length - 1].file.name : undefined;
+        notifyDownloadComplete(lastFinished);
+      } else {
+        clearDownloadNotification();
+      }
+    }
+    prevActiveCountRef.current = activeDownloadingCount;
+  }, [activeDownloadingCount, totalSpeed, queue]);
+
   // Dismiss active modals on Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -438,12 +492,12 @@ export function DashboardLayout() {
 
   const handlePasteClipboard = async () => {
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await readClipboardText();
       if (text && text.trim()) {
         setUrl(text.trim());
       }
     } catch (e) {
-      // Clipboard access denied or unsupported
+      console.warn("Failed to read clipboard:", e);
     }
   };
 
@@ -758,6 +812,17 @@ export function DashboardLayout() {
             aria-label="Settings and configuration"
           >
             <Settings className="h-4 w-4" />
+          </Button>
+
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            onClick={handleQuitApp} 
+            title="Quit Teralace Completely"
+            aria-label="Quit Teralace completely"
+          >
+            <Power className="h-4 w-4" />
           </Button>
         </div>
       </header>
@@ -1814,7 +1879,7 @@ export function DashboardLayout() {
                         className="h-9 px-3 text-xs shrink-0"
                         onClick={async () => {
                           try {
-                            const text = await navigator.clipboard.readText();
+                            const text = await readClipboardText();
                             if (text) {
                               const m = text.match(/(?:^|;\s*)ndus=([^;\s]+)/) || text.match(/^([A-Za-z0-9_-]{20,})$/);
                               const val = m ? (m[1] || m[0]) : text.trim();
@@ -2052,9 +2117,21 @@ export function DashboardLayout() {
             </div>
 
             {/* Modal Footer */}
-            <div className="flex justify-end p-3.5 px-4 sm:px-5 pb-[calc(0.875rem+var(--sab))] border-t border-border/60 bg-muted/20 gap-2 shrink-0">
-              <Button variant="outline" size="sm" className="h-9 px-3.5" onClick={() => setShowSettings(false)}>Cancel</Button>
-              <Button size="sm" className="h-9 px-4" onClick={handleSaveSettings}>Save Changes</Button>
+            <div className="flex justify-between items-center p-3.5 px-4 sm:px-5 pb-[calc(0.875rem+var(--sab))] border-t border-border/60 bg-muted/20 gap-2 shrink-0">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="h-9 px-3 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30 hover:border-destructive flex items-center gap-1.5 transition-colors" 
+                onClick={handleQuitApp}
+                title="Completely terminate Teralace"
+              >
+                <Power className="h-3.5 w-3.5" />
+                <span>Quit App</span>
+              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="h-9 px-3.5" onClick={() => setShowSettings(false)}>Cancel</Button>
+                <Button size="sm" className="h-9 px-4" onClick={handleSaveSettings}>Save Changes</Button>
+              </div>
             </div>
           </div>
         </div>

@@ -13,6 +13,7 @@ if (fs.existsSync(manifestPath)) {
     '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
     '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />',
     '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+    '    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />',
     '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
     '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />'
   ].join('\n');
@@ -208,7 +209,7 @@ if (fs.existsSync(wrapperPropsPath)) {
   console.log('Updated gradle-wrapper.properties to use high-speed CDN mirror');
 }
 
-// 6. Relax StrictMode in MainActivity.kt to prevent any FileUriExposedException on legacy external storage
+// 6. Relax StrictMode, acquire Partial WakeLock, and attach AndroidClipboard in MainActivity.kt
 const mainActivityPath = path.resolve(__dirname, '../src-tauri/gen/android/app/src/main/java/com/teralace/downloader/MainActivity.kt');
 if (fs.existsSync(mainActivityPath)) {
   let mainActivity = fs.readFileSync(mainActivityPath, 'utf8');
@@ -216,12 +217,40 @@ if (fs.existsSync(mainActivityPath)) {
     if (mainActivity.includes('super.onCreate(savedInstanceState)')) {
       mainActivity = mainActivity.replace(
         'super.onCreate(savedInstanceState)',
-        `super.onCreate(savedInstanceState)\n    try {\n      val builder = android.os.StrictMode.VmPolicy.Builder()\n      android.os.StrictMode.setVmPolicy(builder.build())\n    } catch (e: Exception) {}`
+        `super.onCreate(savedInstanceState)\n    try {\n      val builder = android.os.StrictMode.VmPolicy.Builder()\n      android.os.StrictMode.setVmPolicy(builder.build())\n    } catch (e: Exception) {}\n    try {\n      val pm = getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager\n      val wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Teralace::WakeLock")\n      wakeLock?.acquire(4 * 3600 * 1000L)\n    } catch (e: Exception) {}`
       );
-      fs.writeFileSync(mainActivityPath, mainActivity, 'utf8');
-      console.log('Injected StrictMode.VmPolicy relaxation into MainActivity.kt');
+      console.log('Injected StrictMode.VmPolicy relaxation and Partial WakeLock into MainActivity.kt');
     }
   }
+
+  if (!mainActivity.includes('AndroidClipboard')) {
+    const clipboardMethod = `
+  override fun onWebViewCreate(webView: android.webkit.WebView) {
+    super.onWebViewCreate(webView)
+    try {
+      class TeralaceClipboard(private val act: android.app.Activity) {
+        @android.webkit.JavascriptInterface
+        fun readText(): String {
+          return try {
+            val cm = act.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            val clip = cm?.primaryClip
+            if (clip != null && clip.itemCount > 0) {
+              clip.getItemAt(0)?.text?.toString() ?: ""
+            } else ""
+          } catch (e: Exception) { "" }
+        }
+      }
+      webView.addJavascriptInterface(TeralaceClipboard(this), "AndroidClipboard")
+    } catch (e: Exception) {}
+  }
+`;
+    const lastBraceIdx = mainActivity.lastIndexOf('}');
+    if (lastBraceIdx !== -1) {
+      mainActivity = mainActivity.slice(0, lastBraceIdx) + clipboardMethod + '\n}\n';
+      console.log('Injected AndroidClipboard JavascriptInterface into MainActivity.kt');
+    }
+  }
+  fs.writeFileSync(mainActivityPath, mainActivity, 'utf8');
 }
 
 // 7. Enhance OpenerPlugin.kt in cargo registry to support opening files, folders, and triggering Android MediaScanner
