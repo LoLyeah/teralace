@@ -223,8 +223,7 @@ if (fs.existsSync(mainActivityPath)) {
     }
   }
 
-  if (!mainActivity.includes('AndroidClipboard') || !mainActivity.includes('AndroidLogin')) {
-    const bridgeMethods = `
+  const bridgeMethods = `
   override fun onWebViewCreate(webView: android.webkit.WebView) {
     super.onWebViewCreate(webView)
     try {
@@ -232,15 +231,189 @@ if (fs.existsSync(mainActivityPath)) {
         @android.webkit.JavascriptInterface
         fun readText(): String {
           return try {
-            val cm = act.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-            val clip = cm?.primaryClip
-            if (clip != null && clip.itemCount > 0) {
-              clip.getItemAt(0)?.text?.toString() ?: ""
-            } else ""
+            val future = java.util.concurrent.FutureTask<String> {
+              try {
+                val cm = act.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                if (cm != null && cm.hasPrimaryClip()) {
+                  val clip = cm.primaryClip
+                  if (clip != null && clip.itemCount > 0) {
+                    val item = clip.getItemAt(0)
+                    val text = item?.coerceToText(act)?.toString()
+                    if (!text.isNullOrBlank()) {
+                      text.trim()
+                    } else {
+                      item?.text?.toString()?.trim() ?: ""
+                    }
+                  } else ""
+                } else ""
+              } catch (e: Exception) { "" }
+            }
+            act.runOnUiThread(future)
+            future.get(1500, java.util.concurrent.TimeUnit.MILLISECONDS) ?: ""
           } catch (e: Exception) { "" }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun hasText(): Boolean {
+          return try {
+            val future = java.util.concurrent.FutureTask<Boolean> {
+              try {
+                val cm = act.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                cm?.hasPrimaryClip() == true
+              } catch (e: Exception) { false }
+            }
+            act.runOnUiThread(future)
+            future.get(500, java.util.concurrent.TimeUnit.MILLISECONDS) ?: false
+          } catch (e: Exception) { false }
         }
       }
       webView.addJavascriptInterface(TeralaceClipboard(this), "AndroidClipboard")
+    } catch (e: Exception) {}
+
+    try {
+      class TeralaceOpener(private val act: android.app.Activity) {
+        @android.webkit.JavascriptInterface
+        fun openFolder(folderPath: String) {
+          act.runOnUiThread {
+            try {
+              // 1. Try DocumentsProvider directly for primary:Download/Teralace
+              val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FTeralace")
+              val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "vnd.android.document/root")
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+              }
+              act.startActivity(intent)
+            } catch (e1: Exception) {
+              try {
+                // 2. Try DocumentsProvider primary:Download
+                val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload")
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                  setDataAndType(uri, "vnd.android.document/root")
+                  flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                }
+                act.startActivity(intent)
+              } catch (e2: Exception) {
+                try {
+                  // 3. Try DownloadManager ACTION_VIEW_DOWNLOADS
+                  val dmIntent = android.content.Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
+                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                  }
+                  act.startActivity(dmIntent)
+                } catch (e3: Exception) {
+                  try {
+                    // 4. Fallback: Generic GET_CONTENT file browser
+                    val fallback = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
+                      type = "*/*"
+                      addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                      flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    act.startActivity(fallback)
+                  } catch (e4: Exception) {
+                    android.widget.Toast.makeText(act, "Cannot open file manager", android.widget.Toast.LENGTH_SHORT).show()
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun openFile(filePath: String) {
+          act.runOnUiThread {
+            try {
+              val cleanPath = when {
+                filePath.startsWith("file://") -> filePath.removePrefix("file://")
+                filePath.startsWith("file:") -> filePath.removePrefix("file:")
+                else -> filePath
+              }
+              var file = java.io.File(cleanPath)
+              if (!file.exists()) {
+                val candidates = listOf(
+                  java.io.File("/storage/emulated/0/Download/Teralace", cleanPath),
+                  java.io.File("/storage/emulated/0/Download", cleanPath),
+                  java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "Teralace/" + cleanPath),
+                  java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), cleanPath)
+                )
+                for (candidate in candidates) {
+                  if (candidate.exists()) {
+                    file = candidate
+                    break
+                  }
+                }
+              }
+
+              if (!file.exists()) {
+                android.widget.Toast.makeText(act, "File not found: " + java.io.File(cleanPath).name, android.widget.Toast.LENGTH_SHORT).show()
+                return@runOnUiThread
+              }
+
+              // Index with MediaScanner so Android Gallery/Music/Video apps find it
+              try {
+                android.media.MediaScannerConnection.scanFile(
+                  act.applicationContext,
+                  arrayOf(file.absolutePath),
+                  null,
+                  null
+                )
+              } catch (e: Exception) {}
+
+              val uri: android.net.Uri = try {
+                androidx.core.content.FileProvider.getUriForFile(
+                  act,
+                  act.packageName + ".fileprovider",
+                  file
+                )
+              } catch (e: Exception) {
+                android.net.Uri.fromFile(file)
+              }
+
+              val ext = file.extension.lowercase()
+              val mimeType = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+                ?: when (ext) {
+                  "mp4", "mkv", "avi", "mov", "flv", "webm", "ts" -> "video/*"
+                  "mp3", "m4a", "flac", "wav", "aac", "ogg" -> "audio/*"
+                  "jpg", "jpeg", "png", "gif", "webp", "bmp" -> "image/*"
+                  "pdf" -> "application/pdf"
+                  "apk" -> "application/vnd.android.package-archive"
+                  "zip", "rar", "7z", "tar", "gz" -> "application/zip"
+                  "txt", "log", "json", "xml" -> "text/plain"
+                  else -> "*/*"
+                }
+
+              val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mimeType)
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+              }
+              val chooser = android.content.Intent.createChooser(intent, "Open " + file.name)
+              chooser.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+              act.startActivity(chooser)
+            } catch (ex: Exception) {
+              try {
+                android.widget.Toast.makeText(act, "Cannot open file: " + ex.message, android.widget.Toast.LENGTH_LONG).show()
+              } catch (e: Exception) {}
+            }
+          }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun scanFile(filePath: String) {
+          try {
+            val cleanPath = when {
+              filePath.startsWith("file://") -> filePath.removePrefix("file://")
+              filePath.startsWith("file:") -> filePath.removePrefix("file:")
+              else -> filePath
+            }
+            val file = java.io.File(cleanPath)
+            android.media.MediaScannerConnection.scanFile(
+              act.applicationContext,
+              arrayOf(file.absolutePath),
+              null,
+              null
+            )
+          } catch (e: Exception) {}
+        }
+      }
+      webView.addJavascriptInterface(TeralaceOpener(this), "AndroidOpener")
     } catch (e: Exception) {}
 
     try {
@@ -403,10 +576,16 @@ if (fs.existsSync(mainActivityPath)) {
     } catch (e: Exception) {}
   }
 `;
+
+  if (mainActivity.includes('override fun onWebViewCreate')) {
+    const onWebIdx = mainActivity.indexOf('override fun onWebViewCreate');
+    mainActivity = mainActivity.slice(0, onWebIdx) + bridgeMethods.trimStart() + '\n}\n';
+    console.log('Updated existing onWebViewCreate with AndroidClipboard, AndroidOpener, and AndroidLogin JavascriptInterfaces');
+  } else {
     const lastBraceIdx = mainActivity.lastIndexOf('}');
     if (lastBraceIdx !== -1) {
       mainActivity = mainActivity.slice(0, lastBraceIdx) + bridgeMethods + '\n}\n';
-      console.log('Injected AndroidClipboard and AndroidLogin JavascriptInterfaces into MainActivity.kt');
+      console.log('Injected AndroidClipboard, AndroidOpener, and AndroidLogin JavascriptInterfaces into MainActivity.kt');
     }
   }
   fs.writeFileSync(mainActivityPath, mainActivity, 'utf8');

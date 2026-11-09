@@ -539,6 +539,11 @@ export function DashboardLayout() {
       const text = await readClipboardText();
       if (text && text.trim()) {
         setUrl(text.trim());
+      } else {
+        const input = document.getElementById("share-link-input") as HTMLInputElement;
+        if (input) {
+          input.focus();
+        }
       }
     } catch (e) {
       console.warn("Failed to read clipboard:", e);
@@ -939,6 +944,7 @@ export function DashboardLayout() {
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <Input 
+                    id="share-link-input"
                     placeholder="Paste TeraBox link..." 
                     className="text-xs pr-14 pl-3 h-9 bg-background/60 focus-visible:ring-1"
                     value={url}

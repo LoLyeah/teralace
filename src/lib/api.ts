@@ -65,10 +65,34 @@ export async function saveApiEndpoints(
 }
 
 export async function openDownloadDir(path?: string): Promise<void> {
+  if (
+    typeof window !== "undefined" &&
+    (window as any).AndroidOpener &&
+    typeof (window as any).AndroidOpener.openFolder === "function"
+  ) {
+    try {
+      (window as any).AndroidOpener.openFolder(path || "");
+      return;
+    } catch (e) {
+      console.warn("AndroidOpener.openFolder failed:", e);
+    }
+  }
   return invoke<void>("open_download_dir", { path });
 }
 
 export async function openFile(path: string): Promise<void> {
+  if (
+    typeof window !== "undefined" &&
+    (window as any).AndroidOpener &&
+    typeof (window as any).AndroidOpener.openFile === "function"
+  ) {
+    try {
+      (window as any).AndroidOpener.openFile(path);
+      return;
+    } catch (e) {
+      console.warn("AndroidOpener.openFile failed:", e);
+    }
+  }
   return invoke<void>("open_file", { path });
 }
 

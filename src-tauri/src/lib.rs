@@ -438,9 +438,11 @@ async fn open_download_dir(handle: tauri::AppHandle, path: Option<String>) -> Re
 
     #[cfg(target_os = "android")]
     {
-        use tauri_plugin_opener::OpenerExt;
-        let folder_uri = format!("folder:{}", target);
-        let _ = handle.opener().open_url(folder_uri, None::<&str>);
+        use tauri::Manager;
+        if let Some(window) = handle.get_webview_window("main") {
+            let escaped = target.replace('\\', "\\\\").replace('\'', "\\'");
+            let _ = window.eval(&format!("window.AndroidOpener && window.AndroidOpener.openFolder('{}')", escaped));
+        }
     }
 
     Ok(())
@@ -479,9 +481,11 @@ async fn open_file(handle: tauri::AppHandle, path: String) -> Result<(), String>
 
     #[cfg(target_os = "android")]
     {
-        use tauri_plugin_opener::OpenerExt;
-        let file_uri = format!("file:{}", path);
-        let _ = handle.opener().open_url(file_uri, None::<&str>);
+        use tauri::Manager;
+        if let Some(window) = handle.get_webview_window("main") {
+            let escaped = path.replace('\\', "\\\\").replace('\'', "\\'");
+            let _ = window.eval(&format!("window.AndroidOpener && window.AndroidOpener.openFile('{}')", escaped));
+        }
     }
 
     Ok(())
