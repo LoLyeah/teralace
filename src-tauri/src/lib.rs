@@ -267,6 +267,8 @@ async fn open_terabox_login(handle: tauri::AppHandle) -> Result<String, String> 
         let _ = window.eval(
             "if (typeof window !== 'undefined' && window.AndroidLogin && typeof window.AndroidLogin.openLoginDialog === 'function') { \
                 window.AndroidLogin.openLoginDialog(); \
+            } else if (typeof window !== 'undefined' && window.onTeraboxLoginDismissed) { \
+                window.onTeraboxLoginDismissed(); \
             }"
         );
         Ok("opened_internal".to_string())

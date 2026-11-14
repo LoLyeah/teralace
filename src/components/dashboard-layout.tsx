@@ -40,7 +40,7 @@ import { cn, isAndroid } from "../lib/utils";
 import workerScript from "../../cloudflare-worker/worker.js?raw";
 
 declare const __APP_VERSION__: string;
-const defaultAppVersion = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.2.3";
+const defaultAppVersion = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "1.2.6";
 
 const SUPPORTED_MIRRORS = [
   "terabox.app",
@@ -398,22 +398,22 @@ export function DashboardLayout() {
   const handleOpenLogin = async () => {
     setIsLoggingIn(true);
 
-    // On Android, launch native in-app login dialog with CookieManager auto-capture
+    // On Android, launch native in-app login overlay with CookieManager auto-capture
     if (
       typeof window !== "undefined" &&
-      (window as any).AndroidLogin &&
-      typeof (window as any).AndroidLogin.openLoginDialog === "function"
+      window.AndroidLogin &&
+      typeof window.AndroidLogin.openLoginDialog === "function"
     ) {
       try {
-        (window as any).AndroidLogin.openLoginDialog();
+        window.AndroidLogin.openLoginDialog();
       } catch (e) {
-        console.error("Failed to open Android login dialog:", e);
+        console.error("Failed to open Android login overlay:", e);
         setIsLoggingIn(false);
       }
       return;
     }
 
-    // Launch in-app login window via Tauri backend (triggers internal dialog on Android, opens WebviewWindow on desktop)
+    // Launch in-app login window via Tauri backend (triggers internal overlay on Android, opens WebviewWindow on desktop)
     try {
       const res = await openTeraboxLogin();
       if (res === "opened_external") {
@@ -422,6 +422,19 @@ export function DashboardLayout() {
     } catch (e) {
       console.error("Failed to open TeraBox login:", e);
       setIsLoggingIn(false);
+    }
+  };
+
+  const handleCancelLogin = () => {
+    setIsLoggingIn(false);
+    if (
+      typeof window !== "undefined" &&
+      window.AndroidLogin &&
+      typeof window.AndroidLogin.closeLoginDialog === "function"
+    ) {
+      try {
+        window.AndroidLogin.closeLoginDialog();
+      } catch (e) {}
     }
   };
 
@@ -2071,7 +2084,7 @@ export function DashboardLayout() {
                           variant="ghost"
                           size="sm"
                           className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={() => setIsLoggingIn(false)}
+                          onClick={handleCancelLogin}
                           title="Cancel waiting for login"
                         >
                           <X className="h-3.5 w-3.5 mr-1" /> Cancel
