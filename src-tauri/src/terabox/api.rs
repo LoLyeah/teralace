@@ -393,37 +393,18 @@ impl TeraboxApi {
         let uk = find_i64(&["uk", "share_uk"]).unwrap_or(0);
         let sign = find_str(&["sign", "share_sign"]).unwrap_or_default();
         let timestamp = find_i64(&["timestamp", "ctime"]).unwrap_or(0);
-        let files_total = find_i64(&["filesTotal", "total", "count"]).unwrap_or(files.len() as i64);
+        let files_total = find_i64(&["filesTotal", "total", "count"]);
 
         // TeraBox WAP SSR only renders the first 20 items in HTML.
-        // If filesTotal > files.len() or files.len() >= 20, fetch remaining files via share/list pagination!
-        if (files_total as usize) > files.len() || files.len() >= 20 {
+        // If files.len() >= 20 or filesTotal > files.len(), fetch remaining files via share/list pagination!
+        let should_paginate = files.len() >= 20 || files_total.map(|t| t as usize > files.len()).unwrap_or(false);
+        if should_paginate {
             log::info!(
-                "[WAP] filesTotal ({}) > current count ({}), fetching remaining files via pagination",
-                files_total,
-                files.len()
+                "[WAP] files count {} (total: {:?}), fetching remaining files via pagination",
+                files.len(),
+                files_total
             );
-            let mut page = 1;
-            while (files_total as usize) > files.len() && page <= 20 {
-                if let Ok(paged) = self.fetch_share_list_paged(clean_surl, user_cookie, page, 100, path).await {
-                    if paged.is_empty() {
-                        break;
-                    }
-                    let mut added = false;
-                    for item in paged {
-                        if !files.iter().any(|f| f.fs_id == item.fs_id) {
-                            files.push(item);
-                            added = true;
-                        }
-                    }
-                    if !added {
-                        break;
-                    }
-                    page += 1;
-                } else {
-                    break;
-                }
-            }
+            self.paginate_remaining_files(&mut files, clean_surl, user_cookie, path).await;
         }
 
         Ok(TeraboxInfo {
@@ -545,7 +526,11 @@ impl TeraboxApi {
                 .and_then(|n| n.as_str())
                 .unwrap_or("file")
                 .to_string();
-            let fs_id = item.get("fs_id").map(|f| f.to_string()).unwrap_or_default();
+            let fs_id = match item.get("fs_id") {
+                Some(serde_json::Value::String(s)) => s.clone(),
+                Some(serde_json::Value::Number(n)) => n.to_string(),
+                _ => String::new(),
+            };
             let size = item
                 .get("size")
                 .and_then(|s| s.as_i64())
@@ -585,22 +570,245 @@ impl TeraboxApi {
             });
         }
 
+        let files_total = state
+            .get("share")
+            .and_then(|s| s.get("filesTotal").or_else(|| s.get("total")).or_else(|| s.get("count")))
+            .or_else(|| state.get("filesTotal").or_else(|| state.get("total")))
+            .and_then(|t| t.as_i64().or_else(|| t.as_str().and_then(|s| s.parse().ok())));
+
+        let should_paginate = folder_files.len() >= 20
+            || files_total.map(|t| t as usize > folder_files.len()).unwrap_or(false);
+        if should_paginate {
+            log::info!(
+                "[WAP folder] folder_files count {} (total: {:?}), fetching remaining files via pagination",
+                folder_files.len(),
+                files_total
+            );
+            self.paginate_remaining_files(&mut folder_files, clean_surl, user_cookie, Some(folder_path)).await;
+        }
+
         Ok(folder_files)
     }
 
-    /// Fetches a specific page of files from TeraBox share list API
-    async fn fetch_share_list_paged(
+    pub fn is_file_match(a: &TeraboxFileInfo, b: &TeraboxFileInfo) -> bool {
+        if !a.fs_id.is_empty() && !b.fs_id.is_empty() {
+            a.fs_id == b.fs_id
+        } else {
+            a.name == b.name && a.path == b.path && a.size == b.size
+        }
+    }
+
+    pub fn merge_file_info(existing: &mut TeraboxFileInfo, item: &TeraboxFileInfo) {
+        if existing.direct_link.is_none() && item.direct_link.is_some() {
+            existing.direct_link = item.direct_link.clone();
+        }
+        if existing.thumb.is_none() && item.thumb.is_some() {
+            existing.thumb = item.thumb.clone();
+        }
+        if existing.category.is_none() && item.category.is_some() {
+            existing.category = item.category.clone();
+        }
+        if existing.create_time.is_none() && item.create_time.is_some() {
+            existing.create_time = item.create_time;
+        }
+        if existing.path.is_none() && item.path.is_some() {
+            existing.path = item.path.clone();
+        }
+    }
+
+    /// Paginates remaining files via /share/list and appends them to existing files, deduping by fs_id
+    async fn paginate_remaining_files(
+        &self,
+        files: &mut Vec<TeraboxFileInfo>,
+        clean_surl: &str,
+        user_cookie: Option<&str>,
+        path: Option<&str>,
+    ) {
+        const PAGE_SIZE: u32 = 100;
+        const MAX_PAGES: u32 = 100;
+
+        let mut page = 1;
+        while page <= MAX_PAGES {
+            match self
+                .fetch_share_list_page_full(clean_surl, user_cookie, page, PAGE_SIZE, path)
+                .await
+            {
+                Ok(res) => {
+                    let batch_len = res.files.len();
+                    if batch_len == 0 {
+                        break;
+                    }
+
+                    let mut added = 0;
+                    for item in res.files {
+                        if let Some(existing) = files.iter_mut().find(|f| Self::is_file_match(f, &item)) {
+                            Self::merge_file_info(existing, &item);
+                        } else {
+                            files.push(item);
+                            added += 1;
+                        }
+                    }
+
+                    log::info!(
+                        "[paginate_remaining_files] Page {} for surl '{}' path '{:?}': returned {} items ({} new). Total: {}",
+                        page, clean_surl, path, batch_len, added, files.len()
+                    );
+
+                    // End conditions:
+                    // 1. Last page reached (fewer than PAGE_SIZE, or has_more is explicitly false)
+                    if !res.has_more || batch_len < PAGE_SIZE as usize {
+                        break;
+                    }
+
+                    // 2. Full page returned but no new items were added (duplicate batch loop prevention)
+                    if added == 0 {
+                        log::warn!(
+                            "[paginate_remaining_files] Page {} returned only duplicates for surl '{}'. Stopping pagination.",
+                            page, clean_surl
+                        );
+                        break;
+                    }
+
+                    page += 1;
+                }
+                Err(err) => {
+                    log::warn!(
+                        "[paginate_remaining_files] Page {} failed for surl '{}' path '{:?}': {}. Retaining {} files.",
+                        page, clean_surl, path, err, files.len()
+                    );
+                    break;
+                }
+            }
+        }
+
+        if page > MAX_PAGES {
+            log::warn!(
+                "[paginate_remaining_files] Reached MAX_PAGES limit ({}) for surl '{}' path '{:?}'. Total files: {}",
+                MAX_PAGES, clean_surl, path, files.len()
+            );
+        }
+    }
+
+    /// Fetches all files from /share/list for a directory, paginating until no more items
+    pub async fn fetch_share_list_all(
+        &self,
+        clean_surl: &str,
+        user_cookie: Option<&str>,
+        dir: Option<&str>,
+    ) -> Result<TeraboxInfo, String> {
+        const PAGE_SIZE: u32 = 100;
+        const MAX_PAGES: u32 = 100; // Sane upper bound: up to 10,000 files
+
+        let mut all_files: Vec<TeraboxFileInfo> = Vec::new();
+        let mut meta_shareid = 0i64;
+        let mut meta_uk = 0i64;
+        let mut meta_sign = String::new();
+        let mut meta_timestamp = 0i64;
+        let mut page = 1;
+
+        while page <= MAX_PAGES {
+            match self
+                .fetch_share_list_page_full(clean_surl, user_cookie, page, PAGE_SIZE, dir)
+                .await
+            {
+                Ok(res) => {
+                    if meta_shareid == 0 && res.shareid != 0 {
+                        meta_shareid = res.shareid;
+                    }
+                    if meta_uk == 0 && res.uk != 0 {
+                        meta_uk = res.uk;
+                    }
+                    if meta_sign.is_empty() && !res.sign.is_empty() {
+                        meta_sign = res.sign;
+                    }
+                    if meta_timestamp == 0 && res.timestamp != 0 {
+                        meta_timestamp = res.timestamp;
+                    }
+
+                    let batch_len = res.files.len();
+                    let mut added = 0;
+                    for item in res.files {
+                        if let Some(existing) = all_files.iter_mut().find(|f| Self::is_file_match(f, &item)) {
+                            Self::merge_file_info(existing, &item);
+                        } else {
+                            all_files.push(item);
+                            added += 1;
+                        }
+                    }
+
+                    log::info!(
+                        "[fetch_share_list_all] Page {} for surl '{}' dir '{:?}': returned {} items ({} new). Total: {}",
+                        page, clean_surl, dir, batch_len, added, all_files.len()
+                    );
+
+                    // End conditions:
+                    // 1. Batch is empty
+                    // 2. has_more is explicitly false
+                    // 3. Batch has fewer than requested page size (last page reached)
+                    if batch_len == 0 || !res.has_more || batch_len < PAGE_SIZE as usize {
+                        break;
+                    }
+
+                    // 4. Batch was full size but all were duplicates (prevents endless loop if server repeats)
+                    if added == 0 {
+                        log::warn!(
+                            "[fetch_share_list_all] Page {} returned only duplicates for surl '{}'. Breaking pagination loop.",
+                            page, clean_surl
+                        );
+                        break;
+                    }
+
+                    page += 1;
+                }
+                Err(err) => {
+                    if page == 1 {
+                        // First page failed -> propagate error so caller can try fallback
+                        return Err(err);
+                    } else {
+                        // Page N > 1 failed -> treat as partial result with logged warning, not silent success
+                        log::warn!(
+                            "[fetch_share_list_all] Failed on page {} for surl '{}' dir '{:?}': {}. Returning {} partial files collected so far.",
+                            page, clean_surl, dir, err, all_files.len()
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+
+        if page > MAX_PAGES {
+            log::warn!(
+                "[fetch_share_list_all] Reached MAX_PAGES limit ({}) for surl '{}' dir '{:?}'. Total files: {}",
+                MAX_PAGES, clean_surl, dir, all_files.len()
+            );
+        }
+
+        Ok(TeraboxInfo {
+            ok: true,
+            shareid: meta_shareid,
+            uk: meta_uk,
+            sign: meta_sign,
+            timestamp: meta_timestamp,
+            list: all_files,
+            error_message: None,
+            resolved_by: Some("Direct TeraBox Scraper".to_string()),
+            surl: Some(clean_surl.to_string()),
+        })
+    }
+
+    /// Fetches a specific page of files & metadata from TeraBox share list API
+    async fn fetch_share_list_page_full(
         &self,
         clean_surl: &str,
         user_cookie: Option<&str>,
         page: u32,
         num: u32,
         dir: Option<&str>,
-    ) -> Result<Vec<TeraboxFileInfo>, String> {
+    ) -> Result<ShareListPageResult, String> {
         let hosts = ["www.terabox.com", "www.terabox.app", "1024tera.com"];
         let mut last_err = String::new();
 
-        let dir_param = if let Some(d) = dir.filter(|s| !s.trim().is_empty()) {
+        let dir_param = if let Some(d) = dir.filter(|s| !s.trim().is_empty() && s.trim() != "/") {
             format!("&dir={}", urlencoding::encode(d))
         } else {
             "&root=1".to_string()
@@ -640,18 +848,19 @@ impl TeraboxApi {
                         if let Ok(text) = resp.text().await {
                             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
                                 if v.get("errno").and_then(|e| e.as_i64()) == Some(0) {
+                                    let mut files = Vec::new();
                                     if let Some(list_val) = v.get("list").and_then(|l| l.as_array()) {
-                                        let mut files = Vec::new();
                                         for item in list_val {
                                             let name = item
                                                 .get("server_filename")
                                                 .and_then(|n| n.as_str())
                                                 .unwrap_or("file")
                                                 .to_string();
-                                            let fs_id = item
-                                                .get("fs_id")
-                                                .map(|f| f.to_string())
-                                                .unwrap_or_default();
+                                            let fs_id = match item.get("fs_id") {
+                                                Some(serde_json::Value::String(s)) => s.clone(),
+                                                Some(serde_json::Value::Number(n)) => n.to_string(),
+                                                _ => String::new(),
+                                            };
                                             let size = item
                                                 .get("size")
                                                 .and_then(|s| s.as_i64())
@@ -697,8 +906,52 @@ impl TeraboxApi {
                                                 path: item_path,
                                             });
                                         }
-                                        return Ok(files);
                                     }
+
+                                    let has_more = match v.get("has_more") {
+                                        Some(serde_json::Value::Bool(b)) => Some(*b),
+                                        Some(serde_json::Value::Number(n)) => Some(n.as_i64() == Some(1)),
+                                        Some(serde_json::Value::String(s)) => Some(s == "1" || s == "true"),
+                                        _ => None,
+                                    };
+                                    let has_more_effective = has_more.unwrap_or(files.len() >= num as usize);
+
+                                    let shareid = v
+                                        .get("shareid")
+                                        .or_else(|| v.get("share_id"))
+                                        .or_else(|| v.get("primaryid"))
+                                        .and_then(|s| s.as_i64().or_else(|| s.as_str().and_then(|str_val| str_val.parse().ok())))
+                                        .unwrap_or(0);
+                                    let uk = v
+                                        .get("uk")
+                                        .or_else(|| v.get("share_uk"))
+                                        .and_then(|u| u.as_i64().or_else(|| u.as_str().and_then(|str_val| str_val.parse().ok())))
+                                        .unwrap_or(0);
+                                    let sign = v
+                                        .get("sign")
+                                        .or_else(|| v.get("share_sign"))
+                                        .and_then(|s| s.as_str())
+                                        .unwrap_or_default()
+                                        .to_string();
+                                    let timestamp = v
+                                        .get("timestamp")
+                                        .or_else(|| v.get("ctime"))
+                                        .and_then(|t| t.as_i64().or_else(|| t.as_str().and_then(|str_val| str_val.parse().ok())))
+                                        .unwrap_or(0);
+                                    let total = v
+                                        .get("total")
+                                        .and_then(|t| t.as_i64().or_else(|| t.as_str().and_then(|str_val| str_val.parse().ok())))
+                                        .unwrap_or(0);
+
+                                    return Ok(ShareListPageResult {
+                                        files,
+                                        has_more: has_more_effective,
+                                        shareid,
+                                        uk,
+                                        sign,
+                                        timestamp,
+                                        total,
+                                    });
                                 } else {
                                     last_err = format!("errno {:?}", v.get("errno"));
                                 }
@@ -713,6 +966,20 @@ impl TeraboxApi {
         }
 
         Err(format!("fetch_share_list_paged failed: {}", last_err))
+    }
+
+    /// Fetches a specific page of files from TeraBox share list API
+    pub async fn fetch_share_list_paged(
+        &self,
+        clean_surl: &str,
+        user_cookie: Option<&str>,
+        page: u32,
+        num: u32,
+        dir: Option<&str>,
+    ) -> Result<Vec<TeraboxFileInfo>, String> {
+        self.fetch_share_list_page_full(clean_surl, user_cookie, page, num, dir)
+            .await
+            .map(|res| res.files)
     }
 
     /// Fetches share metadata (shareid, uk, sign, timestamp) via /share/list
@@ -792,18 +1059,24 @@ impl TeraboxApi {
             clean_surl
         );
 
-        // 1. Try desktop /share/list with dir=folder_path
-        if let Ok(files) = self
-            .fetch_share_list_paged(clean_surl, user_cookie, 1, 100, Some(folder_path))
+        // 1. Try desktop /share/list with dir=folder_path (with full pagination)
+        match self
+            .fetch_share_list_all(clean_surl, user_cookie, Some(folder_path))
             .await
         {
-            if !files.is_empty() {
-                return Ok(files);
+            Ok(info) if !info.list.is_empty() => return Ok(info.list),
+            Ok(info) => {
+                log::info!("[get_folder_contents] /share/list returned empty, trying WAP fallback");
+                match self.fetch_wap_folder_contents(clean_surl, folder_path, user_cookie).await {
+                    Ok(wap_files) if !wap_files.is_empty() => return Ok(wap_files),
+                    _ => return Ok(info.list),
+                }
+            }
+            Err(e) => {
+                log::warn!("[get_folder_contents] /share/list failed: {}, trying WAP fallback", e);
+                self.fetch_wap_folder_contents(clean_surl, folder_path, user_cookie).await
             }
         }
-
-        // 2. Fallback to WAP with path=folder_path
-        self.fetch_wap_folder_contents(clean_surl, folder_path, user_cookie).await
     }
 
     /// Recursively collects all files inside a folder up to a maximum depth
@@ -885,112 +1158,21 @@ impl TeraboxApi {
             return Ok(info.clone());
         }
 
-        // 2. If WAP failed, try desktop /share/list API
-        let dir_param = if let Some(p) = path.filter(|s| !s.trim().is_empty()) {
-            format!("&dir={}", urlencoding::encode(p))
-        } else {
-            "&root=1".to_string()
-        };
-
-        let api_url = format!(
-            "https://www.terabox.app/share/list?app_id=250528&shorturl={}{}&page=1&num=100",
-            clean_surl, dir_param
+        // 2. If WAP failed, try desktop /share/list API with full pagination
+        log::info!(
+            "[Fetch] WAP Direct Scraper failed ({:?}), trying paginated /share/list fallback",
+            info_res.as_ref().err()
         );
-
-        let mut headers = Self::default_headers();
-        headers.insert(REFERER, HeaderValue::from_static("https://www.terabox.app/"));
-        headers.insert(ORIGIN, HeaderValue::from_static("https://www.terabox.app"));
-
-        if let Some(cookie) = user_cookie {
-            let cookie_str = cookie.trim().trim_matches('"').trim_matches('\'').trim();
-            if !cookie_str.is_empty() {
-                let formatted_cookie = if cookie_str.contains('=') {
-                    cookie_str.to_string()
-                } else {
-                    format!("ndus={}", cookie_str)
-                };
-                if let Ok(c_val) = HeaderValue::from_str(&formatted_cookie) {
-                    headers.insert(COOKIE, c_val);
-                }
+        let mut info = self.fetch_share_list_all(clean_surl, user_cookie, path).await?;
+        if info.sign.is_empty() || info.shareid == 0 || info.timestamp == 0 {
+            if let Ok(meta) = self.fetch_share_meta(clean_surl, user_cookie).await {
+                info.shareid = meta.shareid;
+                info.uk = meta.uk;
+                info.sign = meta.sign;
+                info.timestamp = meta.timestamp;
             }
         }
-
-        let resp = self
-            .client
-            .get(&api_url)
-            .headers(headers)
-            .send()
-            .await
-            .map_err(|e| format!("Direct request failed: {}", e))?;
-
-        if !resp.status().is_success() {
-            return Err(format!("Direct API HTTP {}", resp.status()));
-        }
-
-        let text = resp.text().await.map_err(|e| e.to_string())?;
-        let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-
-        let errno = v.get("errno").and_then(|e| e.as_i64()).unwrap_or(-1);
-        if errno != 0 {
-            return Err(format!("TeraBox returned errno: {}", errno));
-        }
-
-        let list_val = v.get("list").and_then(|l| l.as_array()).ok_or("No list array in direct response")?;
-        let mut files: Vec<TeraboxFileInfo> = Vec::new();
-
-        for item in list_val {
-            let name = item.get("server_filename").and_then(|n| n.as_str()).unwrap_or("file").to_string();
-            let fs_id = item.get("fs_id").map(|f| f.to_string()).unwrap_or_default();
-            let size = item.get("size").and_then(|s| s.as_i64()).or_else(|| {
-                item.get("size").and_then(|s| s.as_str()).and_then(|s| s.parse().ok())
-            });
-            let is_dir = match item.get("isdir") {
-                Some(serde_json::Value::Number(n)) => n.as_i64() == Some(1),
-                Some(serde_json::Value::String(s)) => s == "1" || s == "true",
-                Some(serde_json::Value::Bool(b)) => *b,
-                _ => false,
-            };
-            let dlink = item.get("dlink").and_then(|d| d.as_str()).map(|s| s.to_string());
-            let thumb = item.get("thumbs").and_then(|t| t.get("url3")).and_then(|u| u.as_str()).map(|s| s.to_string());
-            let item_path = item.get("path").and_then(|p| p.as_str()).map(|s| s.to_string());
-
-            let file_type = if is_dir {
-                "folder".to_string()
-            } else {
-                Self::detect_file_type(&name)
-            };
-
-            files.push(TeraboxFileInfo {
-                is_dir,
-                fs_id,
-                name,
-                file_type,
-                size,
-                size_formatted: None,
-                category: None,
-                create_time: item.get("server_mtime").and_then(|m| m.as_i64()),
-                thumb,
-                direct_link: dlink,
-                path: item_path,
-            });
-        }
-
-        let shareid = v.get("shareid").or_else(|| v.get("share_id")).and_then(|s| s.as_i64()).unwrap_or(0);
-        let uk = v.get("uk").and_then(|u| u.as_i64()).unwrap_or(0);
-        let sign = v.get("sign").and_then(|s| s.as_str()).unwrap_or_default().to_string();
-        let timestamp = v.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
-
-        Ok(TeraboxInfo {
-            ok: true,
-            shareid,
-            uk,
-            sign,
-            timestamp,
-            list: files,
-            error_message: None,
-            resolved_by: Some("Direct TeraBox Scraper".to_string()),
-            surl: Some(clean_surl.to_string()),
-        })
+        Ok(info)
     }
 
     /// Legacy Trauso Cloudflare Worker fallback
@@ -1395,5 +1577,108 @@ impl TeraboxApi {
         } else {
             "file".to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_file_match_by_fs_id() {
+        let f1 = TeraboxFileInfo {
+            is_dir: false,
+            fs_id: "12345".to_string(),
+            name: "a.png".to_string(),
+            file_type: "image".to_string(),
+            size: Some(100),
+            size_formatted: None,
+            category: None,
+            create_time: None,
+            thumb: None,
+            direct_link: None,
+            path: None,
+        };
+        let f2 = TeraboxFileInfo {
+            is_dir: false,
+            fs_id: "12345".to_string(),
+            name: "renamed.png".to_string(),
+            file_type: "image".to_string(),
+            size: Some(200),
+            size_formatted: None,
+            category: None,
+            create_time: None,
+            thumb: None,
+            direct_link: None,
+            path: None,
+        };
+        assert!(TeraboxApi::is_file_match(&f1, &f2));
+    }
+
+    #[test]
+    fn test_is_file_match_fallback() {
+        let f1 = TeraboxFileInfo {
+            is_dir: false,
+            fs_id: "".to_string(),
+            name: "a.png".to_string(),
+            file_type: "image".to_string(),
+            size: Some(100),
+            size_formatted: None,
+            category: None,
+            create_time: None,
+            thumb: None,
+            direct_link: None,
+            path: Some("/Cards/a.png".to_string()),
+        };
+        let f2 = TeraboxFileInfo {
+            is_dir: false,
+            fs_id: "".to_string(),
+            name: "a.png".to_string(),
+            file_type: "image".to_string(),
+            size: Some(100),
+            size_formatted: None,
+            category: None,
+            create_time: None,
+            thumb: None,
+            direct_link: None,
+            path: Some("/Cards/a.png".to_string()),
+        };
+        assert!(TeraboxApi::is_file_match(&f1, &f2));
+    }
+
+    #[test]
+    fn test_merge_file_info_enriches_fields() {
+        let mut existing = TeraboxFileInfo {
+            is_dir: false,
+            fs_id: "12345".to_string(),
+            name: "a.png".to_string(),
+            file_type: "image".to_string(),
+            size: Some(100),
+            size_formatted: None,
+            category: None,
+            create_time: None,
+            thumb: None,
+            direct_link: None,
+            path: None,
+        };
+        let incoming = TeraboxFileInfo {
+            is_dir: false,
+            fs_id: "12345".to_string(),
+            name: "a.png".to_string(),
+            file_type: "image".to_string(),
+            size: Some(100),
+            size_formatted: None,
+            category: Some("3".to_string()),
+            create_time: Some(1700000000),
+            thumb: Some("https://thumb.url".to_string()),
+            direct_link: Some("https://dlink.url".to_string()),
+            path: Some("/Cards/a.png".to_string()),
+        };
+        TeraboxApi::merge_file_info(&mut existing, &incoming);
+        assert_eq!(existing.direct_link, Some("https://dlink.url".to_string()));
+        assert_eq!(existing.thumb, Some("https://thumb.url".to_string()));
+        assert_eq!(existing.category, Some("3".to_string()));
+        assert_eq!(existing.create_time, Some(1700000000));
+        assert_eq!(existing.path, Some("/Cards/a.png".to_string()));
     }
 }

@@ -71,6 +71,17 @@ pub struct ShareMeta {
     pub total: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct ShareListPageResult {
+    pub files: Vec<TeraboxFileInfo>,
+    pub has_more: bool,
+    pub shareid: i64,
+    pub uk: i64,
+    pub sign: String,
+    pub timestamp: i64,
+    pub total: i64,
+}
+
 /// Endpoint configuration model for storage and frontend IPC
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiEndpointConfig {
