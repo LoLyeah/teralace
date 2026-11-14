@@ -14,7 +14,8 @@
       {
         "title": "Teralace - TeraBox Downloader",
         "width": 860,
-        "height": 640
+        "height": 640,
+        "backgroundColor": "#0a101d"
       }
     ],
     "security": {
