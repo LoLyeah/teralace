@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react"
+import { isAndroid } from "../lib/utils"
 
 export type Theme = "dark" | "light" | "system"
 export type ThemePalette = "dynamic" | "glacier" | "sand" | "sage" | "lavender" | "terracotta" | "pearl" | "rose"
@@ -36,6 +37,13 @@ interface RGB {
   b: number
 }
 
+export interface MonetColors extends RGB {
+  primaryDark?: RGB
+  bgDark?: RGB
+  cardDark?: RGB
+  bgLight?: RGB
+}
+
 function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
   r /= 255
   g /= 255
@@ -64,17 +72,28 @@ function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
   return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100)]
 }
 
-function getSystemAccentColor(): RGB | null {
+const MONET_STORAGE_KEY = "teralace_monet_tokens"
+
+export function hasDynamicSupport(): boolean {
+  return true
+}
+
+function getSystemAccentColor(): MonetColors | null {
   if (typeof window === "undefined" || typeof document === "undefined") return null
 
-  // 1. Android Native Monet Engine (Android 12+ Wallpaper dynamic colors)
+  // 1. In-memory cached Monet colors
+  if ((window as any).__MONET_COLORS__) {
+    return (window as any).__MONET_COLORS__
+  }
+
+  // 2. Android Native Monet Engine (Android 12+ Wallpaper dynamic colors)
   if (
     (window as any).AndroidTheme &&
     typeof (window as any).AndroidTheme.getMonetColors === "function"
   ) {
     try {
       const json = (window as any).AndroidTheme.getMonetColors()
-      if (json && typeof json === "string") {
+      if (json && typeof json === "string" && json.trim().length > 0) {
         const parsed = JSON.parse(json)
         if (
           typeof parsed.r === "number" &&
@@ -82,7 +101,11 @@ function getSystemAccentColor(): RGB | null {
           typeof parsed.b === "number" &&
           (parsed.r !== 0 || parsed.g !== 0 || parsed.b !== 0)
         ) {
-          return { r: parsed.r, g: parsed.g, b: parsed.b }
+          ;(window as any).__MONET_COLORS__ = parsed
+          try {
+            localStorage.setItem(MONET_STORAGE_KEY, JSON.stringify(parsed))
+          } catch {}
+          return parsed
         }
       }
     } catch (e) {
@@ -90,7 +113,21 @@ function getSystemAccentColor(): RGB | null {
     }
   }
 
-  // 2. Desktop CSS AccentColor keyword (Windows 11 / macOS system accent)
+  // 3. Fallback to localStorage saved Monet tokens (avoids blue flicker on Android boot)
+  if (isAndroid) {
+    try {
+      const saved = localStorage.getItem(MONET_STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed && typeof parsed.r === "number") {
+          ;(window as any).__MONET_COLORS__ = parsed
+          return parsed
+        }
+      }
+    } catch {}
+  }
+
+  // 4. Desktop CSS AccentColor keyword (Windows 11 / macOS system accent)
   try {
     const el = document.createElement("div")
     el.style.color = "AccentColor"
@@ -134,7 +171,12 @@ function applyDynamicTheme(isDark: boolean, isMaterialYou: boolean) {
     root.style.setProperty("--ring", `${h} ${primarySat}% 40%`)
 
     if (isMaterialYou) {
-      root.style.setProperty("--background", `${h} 24% 96.5%`)
+      if (accent?.bgLight && (accent.bgLight.r !== 0 || accent.bgLight.g !== 0 || accent.bgLight.b !== 0)) {
+        const [blH, blS, blL] = rgbToHsl(accent.bgLight.r, accent.bgLight.g, accent.bgLight.b)
+        root.style.setProperty("--background", `${blH} ${blS}% ${blL}%`)
+      } else {
+        root.style.setProperty("--background", `${h} 24% 96.5%`)
+      }
       root.style.setProperty("--card", `${h} 32% 99%`)
       root.style.setProperty("--popover", `${h} 32% 99%`)
       root.style.setProperty("--secondary", `${h} 22% 92%`)
@@ -150,15 +192,34 @@ function applyDynamicTheme(isDark: boolean, isMaterialYou: boolean) {
     }
   } else {
     // Dark Mode Dynamic Monet
-    const darkSat = Math.min(95, primarySat + 12)
-    root.style.setProperty("--primary", `${h} ${darkSat}% 78%`)
+    if (accent?.primaryDark && (accent.primaryDark.r !== 0 || accent.primaryDark.g !== 0 || accent.primaryDark.b !== 0)) {
+      const [pdH, pdS, pdL] = rgbToHsl(accent.primaryDark.r, accent.primaryDark.g, accent.primaryDark.b)
+      root.style.setProperty("--primary", `${pdH} ${pdS}% ${pdL}%`)
+      root.style.setProperty("--ring", `${pdH} ${pdS}% ${pdL}%`)
+    } else {
+      const darkSat = Math.min(95, primarySat + 12)
+      root.style.setProperty("--primary", `${h} ${darkSat}% 78%`)
+      root.style.setProperty("--ring", `${h} ${darkSat}% 78%`)
+    }
     root.style.setProperty("--primary-foreground", `${h} 45% 10%`)
-    root.style.setProperty("--ring", `${h} ${darkSat}% 78%`)
 
     if (isMaterialYou) {
-      root.style.setProperty("--background", `${h} 26% 8%`)
-      root.style.setProperty("--card", `${h} 22% 11.5%`)
-      root.style.setProperty("--popover", `${h} 22% 11.5%`)
+      if (accent?.bgDark && (accent.bgDark.r !== 0 || accent.bgDark.g !== 0 || accent.bgDark.b !== 0)) {
+        const [bdH, bdS, bdL] = rgbToHsl(accent.bgDark.r, accent.bgDark.g, accent.bgDark.b)
+        root.style.setProperty("--background", `${bdH} ${bdS}% ${bdL}%`)
+      } else {
+        root.style.setProperty("--background", `${h} 26% 8%`)
+      }
+
+      if (accent?.cardDark && (accent.cardDark.r !== 0 || accent.cardDark.g !== 0 || accent.cardDark.b !== 0)) {
+        const [cdH, cdS, cdL] = rgbToHsl(accent.cardDark.r, accent.cardDark.g, accent.cardDark.b)
+        root.style.setProperty("--card", `${cdH} ${cdS}% ${cdL}%`)
+        root.style.setProperty("--popover", `${cdH} ${cdS}% ${cdL}%`)
+      } else {
+        root.style.setProperty("--card", `${h} 22% 11.5%`)
+        root.style.setProperty("--popover", `${h} 22% 11.5%`)
+      }
+
       root.style.setProperty("--secondary", `${h} 18% 17%`)
       root.style.setProperty("--secondary-foreground", `${h} 20% 95%`)
       root.style.setProperty("--muted", `${h} 16% 15%`)
@@ -241,9 +302,10 @@ export function ThemeProvider({
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
   )
-  const [palette, setPalette] = useState<ThemePalette>(
-    () => (localStorage.getItem(paletteStorageKey) as ThemePalette) || defaultPalette
-  )
+  const [palette, setPalette] = useState<ThemePalette>(() => {
+    const saved = localStorage.getItem(paletteStorageKey) as ThemePalette
+    return saved || defaultPalette
+  })
   const [materialYou, setMaterialYouState] = useState<boolean>(() => {
     const saved = localStorage.getItem(materialYouStorageKey)
     if (saved !== null) {
@@ -310,17 +372,27 @@ export function ThemeProvider({
       applyDynamicTheme(isDark, materialYou)
     }
 
-    // Capture Android bridge initialization if attached slightly after initial DOM render
-    const t1 = setTimeout(update, 150)
-    const t2 = setTimeout(update, 600)
+    update()
+
+    // Rapidly poll during startup to bind the Android Monet bridge as soon as it attaches
+    let count = 0
+    const interval = setInterval(() => {
+      count++
+      update()
+      if (count >= 25 || (typeof window !== "undefined" && (window as any).__MONET_COLORS__)) {
+        clearInterval(interval)
+      }
+    }, 80)
 
     window.addEventListener("focus", update)
     document.addEventListener("visibilitychange", update)
+    window.addEventListener("android-theme-ready" as any, update)
+
     return () => {
-      clearTimeout(t1)
-      clearTimeout(t2)
+      clearInterval(interval)
       window.removeEventListener("focus", update)
       document.removeEventListener("visibilitychange", update)
+      window.removeEventListener("android-theme-ready" as any, update)
     }
   }, [palette, materialYou])
 

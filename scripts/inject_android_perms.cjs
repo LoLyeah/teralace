@@ -224,186 +224,126 @@ if (fs.existsSync(mainActivityPath)) {
   }
 
   const bridgeMethods = `
-  override fun onWebViewCreate(webView: android.webkit.WebView) {
-    super.onWebViewCreate(webView)
-    try {
-      class TeralaceClipboard(private val act: android.app.Activity) {
-        @android.webkit.JavascriptInterface
-        fun readText(): String {
-          return try {
-            val future = java.util.concurrent.FutureTask<String> {
-              try {
-                val cm = act.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                if (cm != null && cm.hasPrimaryClip()) {
-                  val clip = cm.primaryClip
-                  if (clip != null && clip.itemCount > 0) {
-                    val item = clip.getItemAt(0)
-                    val text = item?.coerceToText(act)?.toString()
-                    if (!text.isNullOrBlank()) {
-                      text.trim()
-                    } else {
-                      item?.text?.toString()?.trim() ?: ""
-                    }
-                  } else ""
-                } else ""
-              } catch (e: Exception) { "" }
-            }
-            act.runOnUiThread(future)
-            future.get(1500, java.util.concurrent.TimeUnit.MILLISECONDS) ?: ""
+  // --- TERALACE_BRIDGES_START ---
+  public class TeralaceClipboard(private val act: android.app.Activity) {
+    @android.webkit.JavascriptInterface
+    public fun readText(): String {
+      return try {
+        val future = java.util.concurrent.FutureTask<String> {
+          try {
+            val cm = act.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            if (cm != null && cm.hasPrimaryClip()) {
+              val clip = cm.primaryClip
+              if (clip != null && clip.itemCount > 0) {
+                val item = clip.getItemAt(0)
+                val text = item?.coerceToText(act)?.toString()
+                if (!text.isNullOrBlank()) {
+                  text.trim()
+                } else {
+                  item?.text?.toString()?.trim() ?: ""
+                }
+              } else ""
+            } else ""
           } catch (e: Exception) { "" }
         }
+        act.runOnUiThread(future)
+        future.get(1500, java.util.concurrent.TimeUnit.MILLISECONDS) ?: ""
+      } catch (e: Exception) { "" }
+    }
 
-        @android.webkit.JavascriptInterface
-        fun hasText(): Boolean {
-          return try {
-            val future = java.util.concurrent.FutureTask<Boolean> {
-              try {
-                val cm = act.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                cm?.hasPrimaryClip() == true
-              } catch (e: Exception) { false }
-            }
-            act.runOnUiThread(future)
-            future.get(500, java.util.concurrent.TimeUnit.MILLISECONDS) ?: false
+    @android.webkit.JavascriptInterface
+    public fun hasText(): Boolean {
+      return try {
+        val future = java.util.concurrent.FutureTask<Boolean> {
+          try {
+            val cm = act.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            cm?.hasPrimaryClip() == true
           } catch (e: Exception) { false }
         }
-      }
-      webView.addJavascriptInterface(TeralaceClipboard(this), "AndroidClipboard")
-    } catch (e: Exception) {}
+        act.runOnUiThread(future)
+        future.get(500, java.util.concurrent.TimeUnit.MILLISECONDS) ?: false
+      } catch (e: Exception) { false }
+    }
+  }
 
-    try {
-      class TeralaceOpener(private val act: android.app.Activity) {
-        @android.webkit.JavascriptInterface
-        fun openFolder(folderPath: String) {
-          act.runOnUiThread {
-            try {
-              // 1. Try DocumentsProvider directly for primary:Download/Teralace
-              val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FTeralace")
-              val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "vnd.android.document/root")
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-              }
-              act.startActivity(intent)
-            } catch (e1: Exception) {
-              try {
-                // 2. Try DocumentsProvider primary:Download
-                val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload")
-                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                  setDataAndType(uri, "vnd.android.document/root")
-                  flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                }
-                act.startActivity(intent)
-              } catch (e2: Exception) {
-                try {
-                  // 3. Try DownloadManager ACTION_VIEW_DOWNLOADS
-                  val dmIntent = android.content.Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
-                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                  }
-                  act.startActivity(dmIntent)
-                } catch (e3: Exception) {
-                  try {
-                    // 4. Fallback: Generic GET_CONTENT file browser
-                    val fallback = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
-                      type = "*/*"
-                      addCategory(android.content.Intent.CATEGORY_OPENABLE)
-                      flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    act.startActivity(fallback)
-                  } catch (e4: Exception) {
-                    android.widget.Toast.makeText(act, "Cannot open file manager", android.widget.Toast.LENGTH_SHORT).show()
-                  }
-                }
-              }
-            }
+  public class TeralaceOpener(private val act: android.app.Activity) {
+    @android.webkit.JavascriptInterface
+    public fun openFolder(folderPath: String) {
+      act.runOnUiThread {
+        try {
+          // 1. Try DocumentsProvider directly for primary:Download/Teralace
+          val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FTeralace")
+          val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "vnd.android.document/root")
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
           }
-        }
-
-        @android.webkit.JavascriptInterface
-        fun openFile(filePath: String) {
-          act.runOnUiThread {
-            try {
-              val cleanPath = when {
-                filePath.startsWith("file://") -> filePath.removePrefix("file://")
-                filePath.startsWith("file:") -> filePath.removePrefix("file:")
-                else -> filePath
-              }
-              var file = java.io.File(cleanPath)
-              if (!file.exists()) {
-                val candidates = listOf(
-                  java.io.File("/storage/emulated/0/Download/Teralace", cleanPath),
-                  java.io.File("/storage/emulated/0/Download", cleanPath),
-                  java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "Teralace/" + cleanPath),
-                  java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), cleanPath)
-                )
-                for (candidate in candidates) {
-                  if (candidate.exists()) {
-                    file = candidate
-                    break
-                  }
-                }
-              }
-
-              if (!file.exists()) {
-                android.widget.Toast.makeText(act, "File not found: " + java.io.File(cleanPath).name, android.widget.Toast.LENGTH_SHORT).show()
-                return@runOnUiThread
-              }
-
-              // Index with MediaScanner so Android Gallery/Music/Video apps find it
-              try {
-                android.media.MediaScannerConnection.scanFile(
-                  act.applicationContext,
-                  arrayOf(file.absolutePath),
-                  null,
-                  null
-                )
-              } catch (e: Exception) {}
-
-              val uri: android.net.Uri = try {
-                androidx.core.content.FileProvider.getUriForFile(
-                  act,
-                  act.packageName + ".fileprovider",
-                  file
-                )
-              } catch (e: Exception) {
-                android.net.Uri.fromFile(file)
-              }
-
-              val ext = file.extension.lowercase()
-              val mimeType = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
-                ?: when (ext) {
-                  "mp4", "mkv", "avi", "mov", "flv", "webm", "ts" -> "video/*"
-                  "mp3", "m4a", "flac", "wav", "aac", "ogg" -> "audio/*"
-                  "jpg", "jpeg", "png", "gif", "webp", "bmp" -> "image/*"
-                  "pdf" -> "application/pdf"
-                  "apk" -> "application/vnd.android.package-archive"
-                  "zip", "rar", "7z", "tar", "gz" -> "application/zip"
-                  "txt", "log", "json", "xml" -> "text/plain"
-                  else -> "*/*"
-                }
-
-              val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mimeType)
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-              }
-              val chooser = android.content.Intent.createChooser(intent, "Open " + file.name)
-              chooser.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-              act.startActivity(chooser)
-            } catch (ex: Exception) {
-              try {
-                android.widget.Toast.makeText(act, "Cannot open file: " + ex.message, android.widget.Toast.LENGTH_LONG).show()
-              } catch (e: Exception) {}
-            }
-          }
-        }
-
-        @android.webkit.JavascriptInterface
-        fun scanFile(filePath: String) {
+          act.startActivity(intent)
+        } catch (e1: Exception) {
           try {
-            val cleanPath = when {
-              filePath.startsWith("file://") -> filePath.removePrefix("file://")
-              filePath.startsWith("file:") -> filePath.removePrefix("file:")
-              else -> filePath
+            // 2. Try DocumentsProvider primary:Download
+            val uri = android.net.Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload")
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+              setDataAndType(uri, "vnd.android.document/root")
+              flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
             }
-            val file = java.io.File(cleanPath)
+            act.startActivity(intent)
+          } catch (e2: Exception) {
+            try {
+              // 3. Try DownloadManager ACTION_VIEW_DOWNLOADS
+              val dmIntent = android.content.Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+              }
+              act.startActivity(dmIntent)
+            } catch (e3: Exception) {
+              try {
+                // 4. Fallback: Generic GET_CONTENT file browser
+                val fallback = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
+                  type = "*/*"
+                  addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                  flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                act.startActivity(fallback)
+              } catch (e4: Exception) {
+                android.widget.Toast.makeText(act, "Cannot open file manager", android.widget.Toast.LENGTH_SHORT).show()
+              }
+            }
+          }
+        }
+      }
+    }
+
+    @android.webkit.JavascriptInterface
+    public fun openFile(filePath: String) {
+      act.runOnUiThread {
+        try {
+          val cleanPath = when {
+            filePath.startsWith("file://") -> filePath.removePrefix("file://")
+            filePath.startsWith("file:") -> filePath.removePrefix("file:")
+            else -> filePath
+          }
+          var file = java.io.File(cleanPath)
+          if (!file.exists()) {
+            val candidates = listOf(
+              java.io.File("/storage/emulated/0/Download/Teralace", cleanPath),
+              java.io.File("/storage/emulated/0/Download", cleanPath),
+              java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "Teralace/" + cleanPath),
+              java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), cleanPath)
+            )
+            for (candidate in candidates) {
+              if (candidate.exists()) {
+                file = candidate
+                break
+              }
+            }
+          }
+
+          if (!file.exists()) {
+            android.widget.Toast.makeText(act, "File not found: " + java.io.File(cleanPath).name, android.widget.Toast.LENGTH_SHORT).show()
+            return@runOnUiThread
+          }
+
+          // Index with MediaScanner so Android Gallery/Music/Video apps find it
+          try {
             android.media.MediaScannerConnection.scanFile(
               act.applicationContext,
               arrayOf(file.absolutePath),
@@ -411,238 +351,433 @@ if (fs.existsSync(mainActivityPath)) {
               null
             )
           } catch (e: Exception) {}
-        }
 
-        @android.webkit.JavascriptInterface
-        fun areNotificationsEnabled(): Boolean {
-          return try {
-            val nm = act.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
-            nm?.areNotificationsEnabled() ?: false
+          val uri: android.net.Uri = try {
+            androidx.core.content.FileProvider.getUriForFile(
+              act,
+              act.packageName + ".fileprovider",
+              file
+            )
           } catch (e: Exception) {
-            true
+            android.net.Uri.fromFile(file)
           }
-        }
 
-        @android.webkit.JavascriptInterface
-        fun openNotificationSettings() {
-          act.runOnUiThread {
-            try {
-              val intent = android.content.Intent().apply {
-                action = android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS
-                putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, act.packageName)
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-              }
-              act.startActivity(intent)
-            } catch (e1: Exception) {
-              try {
-                val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                  data = android.net.Uri.fromParts("package", act.packageName, null)
-                  flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                act.startActivity(intent)
-              } catch (e2: Exception) {
-                try {
-                  android.widget.Toast.makeText(act, "Unable to open notification settings", android.widget.Toast.LENGTH_SHORT).show()
-                } catch (e3: Exception) {}
-              }
+          val ext = file.extension.lowercase()
+          val mimeType = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+            ?: when (ext) {
+              "mp4", "mkv", "avi", "mov", "flv", "webm", "ts" -> "video/*"
+              "mp3", "m4a", "flac", "wav", "aac", "ogg" -> "audio/*"
+              "jpg", "jpeg", "png", "gif", "webp", "bmp" -> "image/*"
+              "pdf" -> "application/pdf"
+              "apk" -> "application/vnd.android.package-archive"
+              "zip", "rar", "7z", "tar", "gz" -> "application/zip"
+              "txt", "log", "json", "xml" -> "text/plain"
+              else -> "*/*"
             }
+
+          val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimeType)
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+          }
+          val chooser = android.content.Intent.createChooser(intent, "Open " + file.name)
+          chooser.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+          act.startActivity(chooser)
+        } catch (ex: Exception) {
+          try {
+            android.widget.Toast.makeText(act, "Cannot open file: " + ex.message, android.widget.Toast.LENGTH_LONG).show()
+          } catch (e: Exception) {}
+        }
+      }
+    }
+
+    @android.webkit.JavascriptInterface
+    public fun scanFile(filePath: String) {
+      try {
+        val cleanPath = when {
+          filePath.startsWith("file://") -> filePath.removePrefix("file://")
+          filePath.startsWith("file:") -> filePath.removePrefix("file:")
+          else -> filePath
+        }
+        val file = java.io.File(cleanPath)
+        android.media.MediaScannerConnection.scanFile(
+          act.applicationContext,
+          arrayOf(file.absolutePath),
+          null,
+          null
+        )
+      } catch (e: Exception) {}
+    }
+
+    @android.webkit.JavascriptInterface
+    public fun areNotificationsEnabled(): Boolean {
+      return try {
+        val nm = act.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+        nm?.areNotificationsEnabled() ?: false
+      } catch (e: Exception) {
+        true
+      }
+    }
+
+    @android.webkit.JavascriptInterface
+    public fun openNotificationSettings() {
+      act.runOnUiThread {
+        try {
+          val intent = android.content.Intent().apply {
+            action = android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS
+            putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, act.packageName)
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+          }
+          act.startActivity(intent)
+        } catch (e1: Exception) {
+          try {
+            val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+              data = android.net.Uri.fromParts("package", act.packageName, null)
+              flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            act.startActivity(intent)
+          } catch (e2: Exception) {
+            try {
+              android.widget.Toast.makeText(act, "Unable to open notification settings", android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e3: Exception) {}
           }
         }
       }
-      webView.addJavascriptInterface(TeralaceOpener(this), "AndroidOpener")
-    } catch (e: Exception) {}
+    }
+  }
 
-    try {
-      class TeraboxLoginBridge(private val act: android.app.Activity, private val mainView: android.webkit.WebView) {
-        private var pollHandler: android.os.Handler? = null
-        private var pollRunnable: Runnable? = null
-        private val captured = java.util.concurrent.atomic.AtomicBoolean(false)
+  public class TeraboxLoginBridge(private val act: android.app.Activity, private val mainView: android.webkit.WebView) {
+    private var pollHandler: android.os.Handler? = null
+    private var pollRunnable: Runnable? = null
+    private val captured = java.util.concurrent.atomic.AtomicBoolean(false)
 
-        @android.webkit.JavascriptInterface
-        fun openLoginDialog() {
-          act.runOnUiThread {
+    @android.webkit.JavascriptInterface
+    public fun openLoginDialog() {
+      act.runOnUiThread {
+        try {
+          captured.set(false)
+          val dialog = android.app.Dialog(act, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen)
+          val root = android.widget.LinearLayout(act).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+              android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+              android.widget.LinearLayout.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor(android.graphics.Color.parseColor("#0a101d"))
+          }
+
+          val density = act.resources.displayMetrics.density
+          val header = android.widget.LinearLayout(act).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+              android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+              (48 * density).toInt()
+            )
+            setBackgroundColor(android.graphics.Color.parseColor("#0f172a"))
+            setPadding((16 * density).toInt(), 0, (12 * density).toInt(), 0)
+            gravity = android.view.Gravity.CENTER_VERTICAL
+          }
+
+          val title = android.widget.TextView(act).apply {
+            text = "Sign In to TeraBox"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
+          }
+          header.addView(title)
+
+          fun stopPoll() {
+            pollRunnable?.let { pollHandler?.removeCallbacks(it) }
+            pollRunnable = null
+            pollHandler = null
+          }
+
+          val closeBtn = android.widget.TextView(act).apply {
+            text = "✕ Cancel"
+            setTextColor(android.graphics.Color.parseColor("#94a3b8"))
+            textSize = 13f
+            setPadding((8 * density).toInt(), (6 * density).toInt(), (8 * density).toInt(), (6 * density).toInt())
+            setOnClickListener {
+              stopPoll()
+              dialog.dismiss()
+            }
+          }
+          header.addView(closeBtn)
+          root.addView(header)
+
+          val webView = android.webkit.WebView(act).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+              android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+              0,
+              1.0f
+            )
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.databaseEnabled = true
+            settings.setSupportZoom(true)
+            settings.builtInZoomControls = true
+            settings.displayZoomControls = false
+            settings.javaScriptCanOpenWindowsAutomatically = true
+            // Use desktop user-agent to ensure clean web login UI and prevent mobile app/intent redirects
+            settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+          }
+
+          val cm = android.webkit.CookieManager.getInstance()
+          cm.setAcceptCookie(true)
+          cm.setAcceptThirdPartyCookies(webView, true)
+
+          fun checkCookie(): Boolean {
             try {
-              captured.set(false)
-              val dialog = android.app.Dialog(act, android.R.style.Theme_DeviceDefault_Light_NoActionBar_Fullscreen)
-              val root = android.widget.LinearLayout(act).apply {
-                orientation = android.widget.LinearLayout.VERTICAL
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                  android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                  android.widget.LinearLayout.LayoutParams.MATCH_PARENT
-                )
-                setBackgroundColor(android.graphics.Color.parseColor("#0a101d"))
-              }
-
-              val density = act.resources.displayMetrics.density
-              val header = android.widget.LinearLayout(act).apply {
-                orientation = android.widget.LinearLayout.HORIZONTAL
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                  android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                  (48 * density).toInt()
-                )
-                setBackgroundColor(android.graphics.Color.parseColor("#0f172a"))
-                setPadding((16 * density).toInt(), 0, (12 * density).toInt(), 0)
-                gravity = android.view.Gravity.CENTER_VERTICAL
-              }
-
-              val title = android.widget.TextView(act).apply {
-                text = "Sign In to TeraBox"
-                setTextColor(android.graphics.Color.WHITE)
-                textSize = 15f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f)
-              }
-              header.addView(title)
-
-              fun stopPoll() {
-                pollRunnable?.let { pollHandler?.removeCallbacks(it) }
-                pollRunnable = null
-                pollHandler = null
-              }
-
-              val closeBtn = android.widget.TextView(act).apply {
-                text = "✕ Cancel"
-                setTextColor(android.graphics.Color.parseColor("#94a3b8"))
-                textSize = 13f
-                setPadding((8 * density).toInt(), (6 * density).toInt(), (8 * density).toInt(), (6 * density).toInt())
-                setOnClickListener {
-                  stopPoll()
-                  dialog.dismiss()
-                }
-              }
-              header.addView(closeBtn)
-              root.addView(header)
-
-              val webView = android.webkit.WebView(act).apply {
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                  android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                  0,
-                  1.0f
-                )
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.databaseEnabled = true
-                settings.setSupportZoom(true)
-                settings.builtInZoomControls = true
-                settings.displayZoomControls = false
-                settings.userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-              }
-
-              val cm = android.webkit.CookieManager.getInstance()
-              cm.setAcceptCookie(true)
-              cm.setAcceptThirdPartyCookies(webView, true)
-
-              fun checkCookie(): Boolean {
-                try {
-                  val c1 = cm.getCookie("https://www.terabox.app") ?: ""
-                  val c2 = cm.getCookie("https://www.terabox.com") ?: ""
-                  val c3 = cm.getCookie("https://terabox.app") ?: ""
-                  val c4 = cm.getCookie("https://terabox.com") ?: ""
-                  val all = "$c1; $c2; $c3; $c4"
-                  val parts = all.split(";")
-                  for (part in parts) {
-                    val p = part.trim()
-                    if (p.startsWith("ndus=")) {
-                      val token = p.substring(5).trim()
-                      if (token.isNotEmpty() && token != "null" && token != "undefined") {
-                        if (captured.compareAndSet(false, true)) {
-                          stopPoll()
-                          dialog.dismiss()
-                          val escaped = token.replace("\\\\", "\\\\\\\\").replace("'", "\\\\'")
-                          mainView.post {
-                            mainView.evaluateJavascript("window.onTeraboxCookieCaptured && window.onTeraboxCookieCaptured('$escaped')", null)
-                          }
-                          return true
-                        }
+              cm.flush()
+              val domains = listOf(
+                "https://www.terabox.app",
+                "https://www.terabox.com",
+                "https://terabox.app",
+                "https://terabox.com",
+                "https://www.1024tera.com",
+                "https://1024tera.com",
+                "https://www.teraboxshare.com",
+                "https://teraboxshare.com",
+                "https://www.dubox.com",
+                "https://dubox.com"
+              )
+              val all = domains.joinToString("; ") { cm.getCookie(it) ?: "" }
+              val parts = all.split(";")
+              for (part in parts) {
+                val p = part.trim()
+                if (p.startsWith("ndus=")) {
+                  val token = p.substring(5).trim()
+                  if (token.isNotEmpty() && token != "null" && token != "undefined") {
+                    if (captured.compareAndSet(false, true)) {
+                      stopPoll()
+                      dialog.dismiss()
+                      val escaped = token.replace("\\\\", "\\\\\\\\").replace("'", "\\\\'")
+                      mainView.post {
+                        mainView.evaluateJavascript("window.onTeraboxCookieCaptured && window.onTeraboxCookieCaptured('$escaped')", null)
                       }
+                      return true
                     }
                   }
-                } catch (e: Exception) {}
-                return false
-              }
-
-              webView.webViewClient = object : android.webkit.WebViewClient() {
-                override fun onPageFinished(v: android.webkit.WebView?, u: String?) {
-                  super.onPageFinished(v, u)
-                  checkCookie()
-                }
-
-                override fun shouldOverrideUrlLoading(v: android.webkit.WebView?, req: android.webkit.WebResourceRequest?): Boolean {
-                  if (checkCookie()) return true
-                  val uriStr = req?.url?.toString() ?: ""
-                  if (!uriStr.startsWith("http://") && !uriStr.startsWith("https://")) {
-                    return true
-                  }
-                  return false
                 }
               }
+            } catch (e: Exception) {}
+            return false
+          }
 
-              root.addView(webView)
-              dialog.setContentView(root)
-              dialog.setOnDismissListener {
-                stopPoll()
-                if (!captured.get()) {
-                  mainView.post {
-                    mainView.evaluateJavascript("window.onTeraboxLoginDismissed && window.onTeraboxLoginDismissed()", null)
-                  }
-                }
+          webView.webViewClient = object : android.webkit.WebViewClient() {
+            override fun onPageFinished(v: android.webkit.WebView?, u: String?) {
+              super.onPageFinished(v, u)
+              checkCookie()
+            }
+
+            override fun shouldOverrideUrlLoading(v: android.webkit.WebView?, req: android.webkit.WebResourceRequest?): Boolean {
+              if (checkCookie()) return true
+              val uriStr = req?.url?.toString() ?: ""
+              if (uriStr.startsWith("http://") || uriStr.startsWith("https://")) {
+                v?.loadUrl(uriStr)
+                return true
               }
+              return true
+            }
 
-              pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
-              pollRunnable = object : Runnable {
-                override fun run() {
-                  if (!checkCookie() && dialog.isShowing) {
-                    pollHandler?.postDelayed(this, 500)
-                  }
-                }
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(v: android.webkit.WebView?, url: String?): Boolean {
+              if (checkCookie()) return true
+              if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
+                v?.loadUrl(url)
+                return true
               }
-              pollHandler?.postDelayed(pollRunnable!!, 1000)
+              return true
+            }
+          }
 
-              webView.loadUrl("https://www.terabox.app/login")
-              dialog.show()
-            } catch (ex: Exception) {
+          dialog.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.action == android.view.KeyEvent.ACTION_UP) {
+              if (webView.canGoBack()) {
+                webView.goBack()
+                true
+              } else {
+                false
+              }
+            } else {
+              false
+            }
+          }
+
+          root.addView(webView)
+          dialog.setContentView(root)
+          dialog.setOnDismissListener {
+            stopPoll()
+            if (!captured.get()) {
               mainView.post {
                 mainView.evaluateJavascript("window.onTeraboxLoginDismissed && window.onTeraboxLoginDismissed()", null)
               }
             }
           }
+
+          pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
+          pollRunnable = object : Runnable {
+            override fun run() {
+              if (!checkCookie() && dialog.isShowing) {
+                pollHandler?.postDelayed(this, 500)
+              }
+            }
+          }
+          pollHandler?.postDelayed(pollRunnable!!, 800)
+
+          webView.loadUrl("https://www.terabox.app/login")
+          dialog.show()
+        } catch (ex: Exception) {
+          mainView.post {
+            mainView.evaluateJavascript("window.onTeraboxLoginDismissed && window.onTeraboxLoginDismissed()", null)
+          }
         }
       }
+    }
+  }
+
+  public class TeralaceTheme(private val act: android.app.Activity) {
+    @android.webkit.JavascriptInterface
+    public fun getMonetColors(): String {
+      return try {
+        var accent500 = 0
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+          try { accent500 = act.getColor(android.R.color.system_accent1_500) } catch (e: Throwable) {}
+          if (accent500 == 0 || accent500 == -16777216) {
+            try { accent500 = act.getColor(android.R.color.system_accent1_600) } catch (e: Throwable) {}
+          }
+          if (accent500 == 0 || accent500 == -16777216) {
+            try { accent500 = act.getColor(android.R.color.system_accent1_400) } catch (e: Throwable) {}
+          }
+        }
+
+        if (accent500 == 0 || accent500 == -16777216) {
+          val tv = android.util.TypedValue()
+          if (act.theme.resolveAttribute(android.R.attr.colorAccent, tv, true)) {
+            accent500 = tv.data
+          }
+        }
+        if (accent500 == 0 || accent500 == -16777216) {
+          val tv = android.util.TypedValue()
+          if (act.theme.resolveAttribute(android.R.attr.colorPrimary, tv, true)) {
+            accent500 = tv.data
+          }
+        }
+
+        if (accent500 == 0) return ""
+
+        val ar = (accent500 shr 16) and 0xff
+        val ag = (accent500 shr 8) and 0xff
+        val ab = accent500 and 0xff
+
+        var a2r = ar
+        var a2g = ag
+        var a2b = ab
+        var bdr = 0
+        var bdg = 0
+        var bdb = 0
+        var cdr = 0
+        var cdg = 0
+        var cdb = 0
+        var blr = 0
+        var blg = 0
+        var blb = 0
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+          try {
+            val accent200 = act.getColor(android.R.color.system_accent1_200)
+            a2r = (accent200 shr 16) and 0xff
+            a2g = (accent200 shr 8) and 0xff
+            a2b = accent200 and 0xff
+          } catch (e: Throwable) {}
+
+          try {
+            val bgDark = act.getColor(android.R.color.system_neutral1_900)
+            bdr = (bgDark shr 16) and 0xff
+            bdg = (bgDark shr 8) and 0xff
+            bdb = bgDark and 0xff
+          } catch (e: Throwable) {}
+
+          try {
+            val cardDark = act.getColor(android.R.color.system_neutral1_800)
+            cdr = (cardDark shr 16) and 0xff
+            cdg = (cardDark shr 8) and 0xff
+            cdb = cardDark and 0xff
+          } catch (e: Throwable) {}
+
+          try {
+            val bgLight = act.getColor(android.R.color.system_neutral1_100)
+            blr = (bgLight shr 16) and 0xff
+            blg = (bgLight shr 8) and 0xff
+            blb = bgLight and 0xff
+          } catch (e: Throwable) {}
+        }
+
+        "{\"r\":$ar,\"g\":$ag,\"b\":$ab,\"primaryDark\":{\"r\":$a2r,\"g\":$a2g,\"b\":$a2b},\"bgDark\":{\"r\":$bdr,\"g\":$bdg,\"b\":$bdb},\"cardDark\":{\"r\":$cdr,\"g\":$cdg,\"b\":$cdb},\"bgLight\":{\"r\":$blr,\"g\":$blg,\"b\":$blb}}"
+      } catch (e: Exception) { "" }
+    }
+  }
+
+  override fun onWebViewCreate(webView: android.webkit.WebView) {
+    super.onWebViewCreate(webView)
+    try {
+      webView.addJavascriptInterface(TeralaceClipboard(this), "AndroidClipboard")
+    } catch (e: Exception) {}
+
+    try {
+      webView.addJavascriptInterface(TeralaceOpener(this), "AndroidOpener")
+    } catch (e: Exception) {}
+
+    try {
       webView.addJavascriptInterface(TeraboxLoginBridge(this, webView), "AndroidLogin")
     } catch (e: Exception) {}
 
     try {
-      class TeralaceTheme(private val act: android.app.Activity) {
-        @android.webkit.JavascriptInterface
-        fun getMonetColors(): String {
-          return try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-              val color = act.getColor(android.R.color.system_accent1_500)
-              val r = (color shr 16) and 0xff
-              val g = (color shr 8) and 0xff
-              val b = color and 0xff
-              "{\"r\":$r,\"g\":$g,\"b\":$b}"
-            } else ""
-          } catch (e: Exception) { "" }
-        }
-      }
       webView.addJavascriptInterface(TeralaceTheme(this), "AndroidTheme")
     } catch (e: Exception) {}
   }
 `;
 
-  if (mainActivity.includes('override fun onWebViewCreate')) {
+  if (mainActivity.includes('// --- TERALACE_BRIDGES_START ---')) {
+    const onStartIdx = mainActivity.indexOf('// --- TERALACE_BRIDGES_START ---');
+    mainActivity = mainActivity.slice(0, onStartIdx) + bridgeMethods.trimStart() + '\n}\n';
+    console.log('Updated existing Teralace bridges in MainActivity.kt');
+  } else if (mainActivity.includes('override fun onWebViewCreate')) {
     const onWebIdx = mainActivity.indexOf('override fun onWebViewCreate');
     mainActivity = mainActivity.slice(0, onWebIdx) + bridgeMethods.trimStart() + '\n}\n';
-    console.log('Updated existing onWebViewCreate with AndroidClipboard, AndroidOpener, AndroidTheme, and AndroidLogin JavascriptInterfaces');
+    console.log('Updated existing onWebViewCreate with public bridge classes and JavascriptInterfaces');
   } else {
     const lastBraceIdx = mainActivity.lastIndexOf('}');
     if (lastBraceIdx !== -1) {
       mainActivity = mainActivity.slice(0, lastBraceIdx) + bridgeMethods + '\n}\n';
-      console.log('Injected AndroidClipboard, AndroidOpener, AndroidTheme, and AndroidLogin JavascriptInterfaces into MainActivity.kt');
+      console.log('Injected public bridge classes and JavascriptInterfaces into MainActivity.kt');
     }
   }
   fs.writeFileSync(mainActivityPath, mainActivity, 'utf8');
+
+  // 6b. Inject ProGuard rules for JavascriptInterface reflection retention
+  const proguardPath = path.resolve(__dirname, '../src-tauri/gen/android/app/proguard-rules.pro');
+  const proguardRules = `
+# Preserve JavascriptInterface bridges for Teralace
+-keepattributes JavascriptInterface
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+-keep class com.teralace.downloader.MainActivity { *; }
+-keep class com.teralace.downloader.MainActivity$* { *; }
+-keepclassmembers class com.teralace.downloader.MainActivity$* { *; }
+`;
+  if (fs.existsSync(proguardPath)) {
+    let pg = fs.readFileSync(proguardPath, 'utf8');
+    if (!pg.includes('JavascriptInterface')) {
+      pg += '\n' + proguardRules;
+      fs.writeFileSync(proguardPath, pg, 'utf8');
+      console.log('Injected JavascriptInterface retention rules into proguard-rules.pro');
+    }
+  } else if (fs.existsSync(path.dirname(proguardPath))) {
+    fs.writeFileSync(proguardPath, proguardRules, 'utf8');
+    console.log('Created proguard-rules.pro with JavascriptInterface retention rules');
+  }
 }
 
 // 7. Enhance OpenerPlugin.kt in cargo registry to support opening files, folders, and triggering Android MediaScanner

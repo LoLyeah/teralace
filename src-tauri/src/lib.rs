@@ -262,9 +262,17 @@ async fn open_terabox_login(handle: tauri::AppHandle) -> Result<String, String> 
 #[cfg(not(desktop))]
 #[tauri::command]
 async fn open_terabox_login(handle: tauri::AppHandle) -> Result<String, String> {
-    use tauri_plugin_opener::OpenerExt;
-    let _ = handle.opener().open_url("https://www.terabox.app/login", None::<&str>);
-    Ok("opened_external".to_string())
+    use tauri::Manager;
+    if let Some(window) = handle.get_webview_window("main") {
+        let _ = window.eval(
+            "if (typeof window !== 'undefined' && window.AndroidLogin && typeof window.AndroidLogin.openLoginDialog === 'function') { \
+                window.AndroidLogin.openLoginDialog(); \
+            }"
+        );
+        Ok("opened_internal".to_string())
+    } else {
+        Err("Main window not found".to_string())
+    }
 }
 
 #[tauri::command]

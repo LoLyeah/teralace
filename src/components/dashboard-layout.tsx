@@ -36,7 +36,7 @@ import {
   ApiEndpointConfig, EndpointHealthInfo, UpdateCheckResult 
 } from "../lib/types";
 import { useDownloadQueue, QueueItem } from "../hooks/use-download-queue";
-import { cn } from "../lib/utils";
+import { cn, isAndroid } from "../lib/utils";
 import workerScript from "../../cloudflare-worker/worker.js?raw";
 
 declare const __APP_VERSION__: string;
@@ -198,10 +198,12 @@ export function DashboardLayout() {
       await openFile(targetPath);
     } catch (e) {
       console.error("Failed to open file, falling back to opening folder:", e);
-      try {
-        await openDownloadDir(item.downloadDir || undefined);
-      } catch (err) {
-        console.error("Failed to open destination folder:", err);
+      if (!isAndroid) {
+        try {
+          await openDownloadDir(item.downloadDir || undefined);
+        } catch (err) {
+          console.error("Failed to open destination folder:", err);
+        }
       }
     }
   }, []);
@@ -411,11 +413,10 @@ export function DashboardLayout() {
       return;
     }
 
-    // On Desktop, launch WebviewWindow popup
+    // Launch in-app login window via Tauri backend (triggers internal dialog on Android, opens WebviewWindow on desktop)
     try {
       const res = await openTeraboxLogin();
       if (res === "opened_external") {
-        // External browser was launched on mobile fallback, don't keep spinning waiting for in-app webview
         setIsLoggingIn(false);
       }
     } catch (e) {
@@ -897,16 +898,18 @@ export function DashboardLayout() {
 
         {/* Right Action Icons Group */}
         <div className="flex items-center gap-1">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => openDownloadDir(downloadDir || undefined)} 
-            title="Open Download Folder"
-            aria-label="Open download folder"
-          >
-            <FolderOpen className="h-4 w-4" />
-          </Button>
+          {!isAndroid && (
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-9 w-9 sm:h-8 sm:w-8 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => openDownloadDir(downloadDir || undefined)} 
+              title="Open Download Folder"
+              aria-label="Open download folder"
+            >
+              <FolderOpen className="h-4 w-4" />
+            </Button>
+          )}
 
           <ThemeToggle />
 
@@ -1020,7 +1023,7 @@ export function DashboardLayout() {
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
-                    ) : (
+                    ) : !isAndroid ? (
                       <button 
                         onClick={handlePasteClipboard}
                         className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-primary rounded-md transition-colors active:scale-95"
@@ -1029,7 +1032,7 @@ export function DashboardLayout() {
                       >
                         <Clipboard className="h-3.5 w-3.5" />
                       </button>
-                    )}
+                    ) : null}
 
                   </div>
                 </div>
@@ -1304,7 +1307,7 @@ export function DashboardLayout() {
                       }}
                       onRetry={() => retryItem(item.id)}
                       onOpenFile={() => handleOpenFile(item)}
-                      onOpenFolder={() => openDownloadDir(item.downloadDir || undefined)}
+                      onOpenFolder={isAndroid ? undefined : () => openDownloadDir(item.downloadDir || undefined)}
                       onOpenCookieSettings={() => {
                         setShowSettings(true);
                         setSettingsTab('cookie');
@@ -1515,15 +1518,17 @@ export function DashboardLayout() {
                         placeholder="Default: Downloads/Teralace"
                         className="flex-1 text-xs h-9 font-mono"
                       />
-                      <Button 
-                        variant="outline" 
-                        size="icon" 
-                        className="h-9 w-9 shrink-0" 
-                        onClick={handleBrowse}
-                        aria-label="Browse destination folder"
-                      >
-                        <FolderOpen className="h-4 w-4" />
-                      </Button>
+                      {!isAndroid && (
+                        <Button 
+                          variant="outline" 
+                          size="icon" 
+                          className="h-9 w-9 shrink-0" 
+                          onClick={handleBrowse}
+                          aria-label="Browse destination folder"
+                        >
+                          <FolderOpen className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                     <p className="text-[11px] text-muted-foreground">
                       Destination folder for downloaded files and parts (Default: Downloads/Teralace).
@@ -1707,7 +1712,7 @@ export function DashboardLayout() {
                       </div>
                       {palette === 'dynamic' && (
                         <p className="text-[10.5px] text-muted-foreground leading-relaxed bg-muted/30 p-2.5 rounded-lg border border-border/40 animate-in fade-in duration-150">
-                          🎨 <strong>Material You Dynamic:</strong> Automatically extracts dynamic tones from your device&apos;s wallpaper on Android 12+ (Monet engine) or system accent color on Windows 11/macOS, harmonizing buttons, surfaces, and borders.
+                          🎨 <strong>Material You Dynamic:</strong> Automatically extracts dynamic tones from your device&apos;s wallpaper (Android 12+ Monet / Windows 11 / macOS), harmonizing buttons, surfaces, and borders.
                         </p>
                       )}
                     </div>
@@ -2099,25 +2104,27 @@ export function DashboardLayout() {
                           </button>
                         )}
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 px-3 text-xs shrink-0"
-                        onClick={async () => {
-                          try {
-                            const text = await readClipboardText();
-                            if (text) {
-                              const m = text.match(/(?:^|;\s*)ndus=([^;\s]+)/) || text.match(/^([A-Za-z0-9_-]{20,})$/);
-                              const val = m ? (m[1] || m[0]) : text.trim();
-                              setTeraboxCookie(val);
+                      {!isAndroid && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-9 px-3 text-xs shrink-0"
+                          onClick={async () => {
+                            try {
+                              const text = await readClipboardText();
+                              if (text) {
+                                const m = text.match(/(?:^|;\s*)ndus=([^;\s]+)/) || text.match(/^([A-Za-z0-9_-]{20,})$/);
+                                const val = m ? (m[1] || m[0]) : text.trim();
+                                setTeraboxCookie(val);
+                              }
+                            } catch (e) {
+                              console.error("Clipboard read error:", e);
                             }
-                          } catch (e) {
-                            console.error("Clipboard read error:", e);
-                          }
-                        }}
-                      >
-                        <Clipboard className="h-3.5 w-3.5 mr-1" /> Paste
-                      </Button>
+                          }}
+                        >
+                          <Clipboard className="h-3.5 w-3.5 mr-1" /> Paste
+                        </Button>
+                      )}
                     </div>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
                       Optional: Paste your personal TeraBox session cookie (<code className="font-mono text-primary font-bold">ndus</code>). 
@@ -2496,7 +2503,7 @@ function QueueItemRow({
               </Button>
             )}
 
-            {item.status === 'completed' && onOpenFolder && (
+            {item.status === 'completed' && onOpenFolder && !isAndroid && (
               <Button 
                 variant="ghost" 
                 size="icon" 
@@ -2617,16 +2624,22 @@ function QueueItemRow({
         {item.status === 'completed' && (
           <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mt-1 truncate">
             <span>Saved to:</span>
-            <span 
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onOpenFolder) onOpenFolder();
-              }}
-              className="text-foreground/90 font-mono underline hover:text-primary cursor-pointer truncate max-w-[280px]"
-              title="Click to open destination folder"
-            >
-              {item.filePath ? item.filePath : (item.downloadDir ? `${item.downloadDir}/${item.file.name}` : `Download/Teralace/${item.file.name}`)}
-            </span>
+            {!isAndroid && onOpenFolder ? (
+              <span 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenFolder();
+                }}
+                className="text-foreground/90 font-mono underline hover:text-primary cursor-pointer truncate max-w-[280px]"
+                title="Click to open destination folder"
+              >
+                {item.filePath ? item.filePath : (item.downloadDir ? `${item.downloadDir}/${item.file.name}` : `Download/Teralace/${item.file.name}`)}
+              </span>
+            ) : (
+              <span className="text-foreground/80 font-mono truncate max-w-[280px]">
+                {item.filePath ? item.filePath : (item.downloadDir ? `${item.downloadDir}/${item.file.name}` : `Download/Teralace/${item.file.name}`)}
+              </span>
+            )}
           </div>
         )}
         
