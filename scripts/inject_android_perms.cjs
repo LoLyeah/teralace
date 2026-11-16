@@ -163,8 +163,8 @@ if (fs.existsSync(resDir)) {
 
 // 5. Update Android compileSdk, targetSdk, versionCode, and versionName
 const pkgPath = path.resolve(__dirname, '../package.json');
-let appVersion = '1.2.6';
-let computedVersionCode = 10206;
+let appVersion = '1.2.7';
+let computedVersionCode = 10207;
 if (fs.existsSync(pkgPath)) {
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
@@ -266,7 +266,6 @@ const mainActivityPath = path.resolve(__dirname, '../src-tauri/gen/android/app/s
 const fullMainActivityContent = `package com.teralace.downloader
 
 import android.os.Bundle
-import app.tauri.plugin.TauriActivity
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: android.os.Bundle?) {
@@ -881,7 +880,7 @@ class MainActivity : TauriActivity() {
           } catch (e: Throwable) {}
         }
 
-        "{\"r\":$ar,\"g\":$ag,\"b\":$ab,\"primaryDark\":{\"r\":$a2r,\"g\":$a2g,\"b\":$a2b},\"bgDark\":{\"r\":$bdr,\"g\":$bdg,\"b\":$bdb},\"cardDark\":{\"r\":$cdr,\"g\":$cdg,\"b\":$cdb},\"bgLight\":{\"r\":$blr,\"g\":$blg,\"b\":$blb}}"
+        """{"r":$ar,"g":$ag,"b":$ab,"primaryDark":{"r":$a2r,"g":$a2g,"b":$a2b},"bgDark":{"r":$bdr,"g":$bdg,"b":$bdb},"cardDark":{"r":$cdr,"g":$cdg,"b":$cdb},"bgLight":{"r":$blr,"g":$blg,"b":$blb}}"""
       } catch (e: Exception) { "" }
     }
   }

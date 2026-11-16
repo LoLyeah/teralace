@@ -111,3 +111,59 @@ jobs:
         run: |
           cd src-tauri
           cargo check
+
+  check-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Install Android NDK & Platform Tools
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;26.1.10909125" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
+          echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
+
+      - name: Install Rust stable & Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Install Frontend Dependencies & Build Bundle
+        run: |
+          npm install
+          npm run build
+
+      - name: Initialize Android Target & Inject Permissions
+        run: |
+          if [ ! -d "src-tauri/gen/android" ]; then
+            npx tauri android init --ci
+          fi
+          node scripts/inject_android_perms.cjs
+
+      - name: Build Android Release APK Check
+        run: |
+          chmod +x src-tauri/gen/android/gradlew || true
+          npx tauri android build --apk --target aarch64 --ci
+
+      - name: Upload Android CI APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teralace-android-ci-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: ignore

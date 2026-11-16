@@ -295,6 +295,13 @@ jobs:
           done
           ls -la dist-apk/
 
+      - name: Upload Signed APK as Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: teralace-android-release-apk
+          path: dist-apk/*.apk
+          if-no-files-found: warn
+
       - name: Upload Android APK
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
