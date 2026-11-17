@@ -1421,7 +1421,7 @@ export function DashboardLayout() {
             aria-modal="true"
             aria-labelledby="settings-modal-title"
             tabIndex={-1}
-            className="bg-background border border-border/80 rounded-2xl shadow-2xl w-full max-w-[580px] h-[580px] max-h-[92dvh] sm:max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 outline-none focus:outline-none"
+            className="bg-background border border-border/80 rounded-2xl shadow-2xl w-full max-w-[720px] h-[620px] max-h-[92dvh] sm:max-h-[88vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150 outline-none focus:outline-none"
           >
             
             {/* Modal Header */}
@@ -1510,7 +1510,13 @@ export function DashboardLayout() {
             </div>
 
             {/* Modal Body */}
-            <div ref={settingsBodyRef} className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+            <div 
+              ref={settingsBodyRef} 
+              className={cn(
+                "flex-1 p-4 sm:p-5 text-xs min-h-0",
+                settingsTab === 'logs' ? "flex flex-col overflow-hidden" : "overflow-y-auto space-y-4"
+              )}
+            >
               
               {/* TAB 1: GENERAL */}
               {settingsTab === 'general' && (
@@ -2237,9 +2243,9 @@ export function DashboardLayout() {
                   id="panel-logs" 
                   aria-labelledby="tab-logs" 
                   tabIndex={0} 
-                  className="space-y-4 focus:outline-none animate-in fade-in duration-150"
+                  className="flex-1 min-h-0 flex flex-col focus:outline-none animate-in fade-in duration-150"
                 >
-                  <LogViewer />
+                  <LogViewer className="flex-1 min-h-0" />
                 </div>
               )}
 
