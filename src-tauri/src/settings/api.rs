@@ -15,7 +15,7 @@ pub fn load_settings() -> AppSettings {
 
     let config_dir = get_config_dir();
     let path = config_dir.join("settings.json");
-    let settings = if path.exists() {
+    let mut settings: AppSettings = if path.exists() {
         fs::read_to_string(&path)
             .ok()
             .and_then(|content| serde_json::from_str(&content).ok())
@@ -23,6 +23,17 @@ pub fn load_settings() -> AppSettings {
     } else {
         AppSettings::default()
     };
+
+    let default_endpoints = default_api_endpoints();
+    if !settings
+        .api_endpoints
+        .iter()
+        .any(|ep| ep.id == "default-teralace" || ep.url.contains("teralace.secretrizqi.workers.dev"))
+    {
+        if let Some(default_ep) = default_endpoints.first() {
+            settings.api_endpoints.insert(0, default_ep.clone());
+        }
+    }
 
     *settings_guard = Some(settings.clone());
     settings

@@ -16,6 +16,13 @@ export interface AppSettings {
 
 export const DEFAULT_ENDPOINTS: ApiEndpointConfig[] = [
   {
+    id: "default-teralace",
+    name: "Teralace Cloudflare Resolver",
+    url: "https://teralace.secretrizqi.workers.dev/",
+    token: null,
+    enabled: true,
+  },
+  {
     id: "default-ntm",
     name: "NTM TeraBox API",
     url: "https://api-free.ntmterabox.me/",
@@ -55,6 +62,14 @@ export async function loadSettings(): Promise<AppSettings> {
     const s = await getStore();
     const val = await s.get('config');
     const result: AppSettings = { ...DEFAULT_SETTINGS, ...val };
+    if (result.apiEndpoints && Array.isArray(result.apiEndpoints)) {
+      const hasTeralace = result.apiEndpoints.some(
+        (ep) => ep.url.includes("teralace.secretrizqi.workers.dev") || ep.id === "default-teralace"
+      );
+      if (!hasTeralace) {
+        result.apiEndpoints = [DEFAULT_ENDPOINTS[0], ...result.apiEndpoints];
+      }
+    }
     if (result.teraboxCookie) {
       saveTeraboxCookie(result.teraboxCookie).catch(() => {});
     }

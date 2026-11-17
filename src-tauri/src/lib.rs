@@ -5,7 +5,7 @@ mod terabox;
 
 use downloader::{DownloadInfo, DownloadManager, DownloadOptions};
 use logging::LogEntry;
-use settings::types::AppSettings;
+use settings::types::{default_api_endpoints, AppSettings};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use tauri::Emitter;
@@ -59,6 +59,18 @@ fn get_settings(handle: &tauri::AppHandle) -> AppSettings {
                     settings.max_concurrent = concurrent as u32;
                 }
             }
+        }
+    }
+
+    // Ensure default teralace endpoint is present for existing configs
+    let default_endpoints = default_api_endpoints();
+    if !settings
+        .api_endpoints
+        .iter()
+        .any(|ep| ep.id == "default-teralace" || ep.url.contains("teralace.secretrizqi.workers.dev"))
+    {
+        if let Some(default_ep) = default_endpoints.first() {
+            settings.api_endpoints.insert(0, default_ep.clone());
         }
     }
 

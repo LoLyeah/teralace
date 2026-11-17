@@ -24,8 +24,15 @@ fn default_concurrent() -> u32 {
     3
 }
 
-fn default_api_endpoints() -> Vec<ApiEndpointConfig> {
+pub fn default_api_endpoints() -> Vec<ApiEndpointConfig> {
     vec![
+        ApiEndpointConfig {
+            id: "default-teralace".to_string(),
+            name: "Teralace Cloudflare Resolver".to_string(),
+            url: "https://teralace.secretrizqi.workers.dev/".to_string(),
+            token: None,
+            enabled: true,
+        },
         ApiEndpointConfig {
             id: "default-ntm".to_string(),
             name: "NTM TeraBox API".to_string(),

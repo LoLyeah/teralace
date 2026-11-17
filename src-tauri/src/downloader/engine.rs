@@ -203,6 +203,7 @@ impl DownloadManager {
         list.push(Some("https://dm.terabox.com/".to_string()));
         list.push(Some("https://www.terabox.app/".to_string()));
         list.push(Some("https://www.terabox.com/".to_string()));
+        list.push(Some("https://teralace.secretrizqi.workers.dev/".to_string()));
         list.push(Some("https://terabox.hnn.workers.dev/".to_string()));
 
         list
