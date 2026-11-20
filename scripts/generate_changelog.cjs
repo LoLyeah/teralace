@@ -4,7 +4,7 @@ const { execSync } = require('child_process');
 
 function exec(cmd) {
   try {
-    return execSync(cmd, { encoding: 'utf8' }).trim();
+    return execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
   } catch (err) {
     return '';
   }
@@ -24,7 +24,7 @@ console.log(`[generate_changelog] Current tag: ${currentTag} (version: ${version
 let prevTag = '';
 try {
   // Try git describe first using ~1 (cross-platform compatible without cmd caret escaping)
-  prevTag = exec(`git describe --tags --abbrev=0 "${currentTag}~1" 2>nul`);
+  prevTag = exec(`git describe --tags --abbrev=0 "${currentTag}~1"`);
 } catch (e) {
   prevTag = '';
 }
