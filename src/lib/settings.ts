@@ -12,6 +12,7 @@ export interface AppSettings {
   maxDownloadLimitKbPerSec: number;
   apiEndpoints: ApiEndpointConfig[];
   teraboxCookie: string;
+  preserveFolderStructure: boolean;
 }
 
 export const DEFAULT_ENDPOINTS: ApiEndpointConfig[] = [
@@ -46,6 +47,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxDownloadLimitKbPerSec: 0,
   apiEndpoints: DEFAULT_ENDPOINTS,
   teraboxCookie: '',
+  preserveFolderStructure: true,
 };
 
 let storePromise: Promise<any> | null = null;

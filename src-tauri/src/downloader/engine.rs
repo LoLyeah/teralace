@@ -128,6 +128,9 @@ impl DownloadManager {
         };
 
         let filepath = target_dir.join(&filename);
+        if let Some(parent) = filepath.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
         let headers = opts.headers.unwrap_or_default();
 
         let task = DownloadTask {

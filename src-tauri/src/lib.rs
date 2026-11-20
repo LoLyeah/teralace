@@ -321,6 +321,7 @@ async fn add_download(
     url: String,
     dir: Option<String>,
     filename: Option<String>,
+    subpath: Option<String>,
 ) -> Result<String, String> {
     let settings = get_settings(&handle);
     let mut headers = Vec::new();
@@ -337,37 +338,68 @@ async fn add_download(
     }
 
     // Determine effective target directory with Android fallback
-    let effective_dir = if let Some(d) = dir.filter(|s| !s.trim().is_empty()) {
-        Some(d)
+    let base_dir: PathBuf = if let Some(d) = dir.filter(|s| !s.trim().is_empty()) {
+        PathBuf::from(d)
     } else {
         #[cfg(target_os = "android")]
         {
             // On Android, verify settings path is an absolute Android path, otherwise fall back to public Download/Teralace
             if !settings.download_dir.trim().is_empty() && settings.download_dir.starts_with('/') {
-                Some(settings.download_dir.clone())
+                PathBuf::from(&settings.download_dir)
             } else {
                 use tauri::Manager;
-                let p = handle
+                handle
                     .path()
                     .download_dir()
                     .unwrap_or_else(|_| PathBuf::from("/storage/emulated/0/Download"))
-                    .join("Teralace");
-                Some(p.to_string_lossy().to_string())
+                    .join("Teralace")
             }
         }
         #[cfg(not(target_os = "android"))]
         {
             if !settings.download_dir.trim().is_empty() {
-                Some(settings.download_dir.clone())
+                PathBuf::from(&settings.download_dir)
             } else {
-                None
+                DOWNLOAD_MANAGER.get_default_dir().await
             }
         }
     };
 
+    // If subpath is specified, append safely to base_dir
+    let mut target_dir = base_dir;
+    if let Some(sub) = subpath.filter(|s| !s.trim().is_empty()) {
+        let clean = sub.replace('\\', "/");
+        for comp in clean.split('/') {
+            let trimmed = comp.trim();
+            if !trimmed.is_empty() && trimmed != ".." && trimmed != "." {
+                target_dir.push(trimmed);
+            }
+        }
+    }
+
+    // If filename contains directory path segments, split and append them to target_dir
+    let final_filename = if let Some(fname) = filename {
+        let clean = fname.replace('\\', "/");
+        if let Some(idx) = clean.rfind('/') {
+            let dir_part = &clean[..idx];
+            let name_part = &clean[idx + 1..];
+            for comp in dir_part.split('/') {
+                let trimmed = comp.trim();
+                if !trimmed.is_empty() && trimmed != ".." && trimmed != "." {
+                    target_dir.push(trimmed);
+                }
+            }
+            Some(name_part.to_string())
+        } else {
+            Some(clean)
+        }
+    } else {
+        None
+    };
+
     let options = DownloadOptions {
-        dir: effective_dir,
-        out: filename,
+        dir: Some(target_dir.to_string_lossy().to_string()),
+        out: final_filename,
         headers: if headers.is_empty() { None } else { Some(headers) },
         ..Default::default()
     };

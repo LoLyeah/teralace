@@ -17,4 +17,17 @@ export const isAndroid = typeof navigator !== "undefined" && (
     (window as any).AndroidTheme
   ))
 );
+
+/**
+ * Extracts relative directory hierarchy from a file's source path.
+ * e.g., "/Root_Folder/Sub_Folder/file.ext" -> "Root_Folder/Sub_Folder"
+ *       "/file.ext" -> ""
+ */
+export function extractFileSubpath(file: { path?: string | null; name: string }): string {
+  if (!file.path) return "";
+  const normalized = file.path.replace(/\\/g, "/").replace(/^\/+/, "");
+  const lastSlash = normalized.lastIndexOf("/");
+  if (lastSlash <= 0) return "";
+  return normalized.substring(0, lastSlash);
+}
  

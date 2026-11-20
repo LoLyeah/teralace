@@ -18,10 +18,16 @@ pub struct AppSettings {
     pub terabox_cookie: Option<String>,
     #[serde(default = "default_concurrent")]
     pub max_concurrent: u32,
+    #[serde(default = "default_true")]
+    pub preserve_folder_structure: bool,
 }
 
 fn default_concurrent() -> u32 {
     3
+}
+
+fn default_true() -> bool {
+    true
 }
 
 pub fn default_api_endpoints() -> Vec<ApiEndpointConfig> {
@@ -68,6 +74,7 @@ impl Default for AppSettings {
             api_endpoints: default_api_endpoints(),
             terabox_cookie: None,
             max_concurrent: 3,
+            preserve_folder_structure: true,
         }
     }
 }

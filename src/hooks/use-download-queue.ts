@@ -10,6 +10,7 @@ import {
   startAria2,
   cancelDownload,
 } from "../lib/api";
+import { extractFileSubpath } from "../lib/utils";
 
 export type QueueStatus = "pending" | "fetching_link" | "downloading" | "completed" | "error" | "cancelled";
 
@@ -25,6 +26,7 @@ export interface QueueItem {
   error?: string;
   params: DownloadParams;
   downloadDir?: string;
+  subpath?: string;
   filePath?: string;
 }
 
@@ -39,22 +41,27 @@ export function useDownloadQueue() {
   const addToQueue = useCallback((
     files: TeraboxFileInfo[], 
     params: Omit<DownloadParams, "fs_id">,
-    downloadDir?: string
+    downloadDir?: string,
+    preserveHierarchy: boolean = true
   ) => {
     setQueue((prev) => {
       const newItems = files
         .filter((f) => !prev.some((p) => p.id === f.fs_id))
-        .map((file) => ({
-          id: file.fs_id,
-          file,
-          status: "pending" as QueueStatus,
-          progress: 0,
-          speed: 0,
-          downloaded: 0,
-          total: file.size || 0,
-          params: { ...params, fs_id: file.fs_id, direct_link: file.direct_link, path: file.path },
-          downloadDir
-        }));
+        .map((file) => {
+          const subpath = preserveHierarchy ? extractFileSubpath(file) : undefined;
+          return {
+            id: file.fs_id,
+            file,
+            status: "pending" as QueueStatus,
+            progress: 0,
+            speed: 0,
+            downloaded: 0,
+            total: file.size || 0,
+            params: { ...params, fs_id: file.fs_id, direct_link: file.direct_link, path: file.path },
+            downloadDir,
+            subpath: subpath || undefined,
+          };
+        });
       return [...prev, ...newItems];
     });
   }, []);
@@ -98,7 +105,8 @@ export function useDownloadQueue() {
       const gid = await addDownload(
         linkResult.download_link,
         item.downloadDir,
-        item.file.name
+        item.file.name,
+        item.subpath
       );
 
       updateItem(id, { gid });

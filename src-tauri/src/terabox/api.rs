@@ -1060,23 +1060,32 @@ impl TeraboxApi {
         );
 
         // 1. Try desktop /share/list with dir=folder_path (with full pagination)
-        match self
+        let mut files = match self
             .fetch_share_list_all(clean_surl, user_cookie, Some(folder_path))
             .await
         {
-            Ok(info) if !info.list.is_empty() => return Ok(info.list),
+            Ok(info) if !info.list.is_empty() => info.list,
             Ok(info) => {
                 log::info!("[get_folder_contents] /share/list returned empty, trying WAP fallback");
                 match self.fetch_wap_folder_contents(clean_surl, folder_path, user_cookie).await {
-                    Ok(wap_files) if !wap_files.is_empty() => return Ok(wap_files),
-                    _ => return Ok(info.list),
+                    Ok(wap_files) if !wap_files.is_empty() => wap_files,
+                    _ => info.list,
                 }
             }
             Err(e) => {
                 log::warn!("[get_folder_contents] /share/list failed: {}, trying WAP fallback", e);
-                self.fetch_wap_folder_contents(clean_surl, folder_path, user_cookie).await
+                self.fetch_wap_folder_contents(clean_surl, folder_path, user_cookie).await?
+            }
+        };
+
+        let base = folder_path.trim_end_matches('/');
+        for item in &mut files {
+            if item.path.is_none() {
+                item.path = Some(format!("{}/{}", base, item.name));
             }
         }
+
+        Ok(files)
     }
 
     /// Recursively collects all files inside a folder up to a maximum depth
@@ -1100,7 +1109,7 @@ impl TeraboxApi {
 
             match self.get_folder_contents(raw_url_or_surl, &current_dir, user_cookie).await {
                 Ok(items) => {
-                    for item in items {
+                    for mut item in items {
                         if item.is_dir {
                             if depth < max_depth {
                                 let sub_path = item.path.clone().unwrap_or_else(|| {
@@ -1110,6 +1119,10 @@ impl TeraboxApi {
                                 queue.push_back((sub_path, depth + 1));
                             }
                         } else {
+                            if item.path.is_none() {
+                                let base = current_dir.trim_end_matches('/');
+                                item.path = Some(format!("{}/{}", base, item.name));
+                            }
                             all_files.push(item);
                         }
                     }

@@ -124,6 +124,7 @@ export function DashboardLayout() {
   const [teraboxInfo, setTeraboxInfo] = useState<TeraboxInfo | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [downloadDir, setDownloadDir] = useState("");
+  const [preserveFolderStructure, setPreserveFolderStructure] = useState(true);
   const [downloadMode, setDownloadMode] = useState(2);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'api' | 'cookie' | 'logs' | 'about'>('general');
@@ -194,13 +195,16 @@ export function DashboardLayout() {
 
   const handleOpenFile = useCallback(async (item: QueueItem) => {
     try {
-      const targetPath = item.filePath || (item.downloadDir ? `${item.downloadDir}/${item.file.name}` : item.file.name);
+      const targetPath = item.filePath || (item.downloadDir ? `${item.downloadDir}/${item.subpath ? `${item.subpath}/` : ''}${item.file.name}` : item.file.name);
       await openFile(targetPath);
     } catch (e) {
       console.error("Failed to open file, falling back to opening folder:", e);
       if (!isAndroid) {
         try {
-          await openDownloadDir(item.downloadDir || undefined);
+          const folderToOpen = item.filePath
+            ? item.filePath.substring(0, Math.max(item.filePath.lastIndexOf('/'), item.filePath.lastIndexOf('\\')))
+            : (item.downloadDir && item.subpath ? `${item.downloadDir}/${item.subpath}` : item.downloadDir || undefined);
+          await openDownloadDir(folderToOpen);
         } catch (err) {
           console.error("Failed to open destination folder:", err);
         }
@@ -243,7 +247,7 @@ export function DashboardLayout() {
       if (deleteConfirmation.type === 'single' && deleteConfirmation.item) {
         const item = deleteConfirmation.item;
         if (deleteFromStorage) {
-          const targetPath = item.filePath || (item.downloadDir ? `${item.downloadDir}/${item.file.name}` : undefined);
+          const targetPath = item.filePath || (item.downloadDir ? `${item.downloadDir}/${item.subpath ? `${item.subpath}/` : ''}${item.file.name}` : undefined);
           if (targetPath) {
             try {
               await deleteFileFromDisk(targetPath);
@@ -257,7 +261,7 @@ export function DashboardLayout() {
         const completedItems = queue.filter(i => i.status === 'completed');
         if (deleteFromStorage) {
           for (const item of completedItems) {
-            const targetPath = item.filePath || (item.downloadDir ? `${item.downloadDir}/${item.file.name}` : undefined);
+            const targetPath = item.filePath || (item.downloadDir ? `${item.downloadDir}/${item.subpath ? `${item.subpath}/` : ''}${item.file.name}` : undefined);
             if (targetPath) {
               try {
                 await deleteFileFromDisk(targetPath);
@@ -303,6 +307,9 @@ export function DashboardLayout() {
       setDownloadDir(settings.downloadDir);
       setDownloadMode(settings.downloadMode);
       setMaxConcurrent(settings.maxConcurrent);
+      if (typeof settings.preserveFolderStructure === 'boolean') {
+        setPreserveFolderStructure(settings.preserveFolderStructure);
+      }
       if (settings.apiEndpoints && settings.apiEndpoints.length > 0) {
         setApiEndpoints(settings.apiEndpoints);
       }
@@ -457,6 +464,7 @@ export function DashboardLayout() {
       maxDownloadLimitKbPerSec: maxDownloadLimit,
       apiEndpoints,
       teraboxCookie,
+      preserveFolderStructure,
     });
 
     try {
@@ -750,7 +758,7 @@ export function DashboardLayout() {
         timestamp: teraboxInfo.timestamp,
         mode: downloadMode,
         surl: teraboxInfo.surl || undefined,
-      }, downloadDir || undefined);
+      }, downloadDir || undefined, preserveFolderStructure);
 
       startQueue();
       setMobileTab('queue');
@@ -759,7 +767,7 @@ export function DashboardLayout() {
     } finally {
       setIsQueuingFolder(null);
     }
-  }, [teraboxInfo, currentPath, url, downloadMode, downloadDir, addToQueue, startQueue, checkSignInBeforeDownload]);
+  }, [teraboxInfo, currentPath, url, downloadMode, downloadDir, preserveFolderStructure, addToQueue, startQueue, checkSignInBeforeDownload]);
 
   const handleSelectFolder = useCallback(async (folder: TeraboxFileInfo) => {
     if (!teraboxInfo) return;
@@ -792,10 +800,10 @@ export function DashboardLayout() {
       timestamp: teraboxInfo.timestamp,
       mode: downloadMode,
       surl: teraboxInfo.surl || undefined,
-    }, downloadDir || undefined);
+    }, downloadDir || undefined, preserveFolderStructure);
     startQueue();
     setMobileTab('queue');
-  }, [teraboxInfo, downloadMode, downloadDir, addToQueue, startQueue, checkSignInBeforeDownload]);
+  }, [teraboxInfo, downloadMode, downloadDir, preserveFolderStructure, addToQueue, startQueue, checkSignInBeforeDownload]);
 
   const handleDownloadSelected = async () => {
     if (!teraboxInfo) return;
@@ -815,7 +823,7 @@ export function DashboardLayout() {
       timestamp: teraboxInfo.timestamp,
       mode: downloadMode,
       surl: teraboxInfo.surl || undefined,
-    }, downloadDir || undefined);
+    }, downloadDir || undefined, preserveFolderStructure);
     
     startQueue();
     setSelectedFiles(new Set());
@@ -1320,7 +1328,12 @@ export function DashboardLayout() {
                       }}
                       onRetry={() => retryItem(item.id)}
                       onOpenFile={() => handleOpenFile(item)}
-                      onOpenFolder={isAndroid ? undefined : () => openDownloadDir(item.downloadDir || undefined)}
+                      onOpenFolder={isAndroid ? undefined : () => {
+                        const folderToOpen = item.filePath
+                          ? item.filePath.substring(0, Math.max(item.filePath.lastIndexOf('/'), item.filePath.lastIndexOf('\\')))
+                          : (item.downloadDir && item.subpath ? `${item.downloadDir}/${item.subpath}` : item.downloadDir || undefined);
+                        openDownloadDir(folderToOpen);
+                      }}
                       onOpenCookieSettings={() => {
                         setShowSettings(true);
                         setSettingsTab('cookie');
@@ -1552,6 +1565,24 @@ export function DashboardLayout() {
                     <p className="text-[11px] text-muted-foreground">
                       Destination folder for downloaded files and parts (Default: Downloads/Teralace).
                     </p>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-border/60 bg-muted/20">
+                    <div className="space-y-0.5 pr-2">
+                      <label htmlFor="settings-preserve-folder-structure" className="font-medium text-xs text-foreground cursor-pointer">
+                        Preserve Folder Hierarchy
+                      </label>
+                      <p className="text-[11px] text-muted-foreground">
+                        Automatically create local folders and subfolders matching the source directory structure.
+                      </p>
+                    </div>
+                    <input
+                      id="settings-preserve-folder-structure"
+                      type="checkbox"
+                      checked={preserveFolderStructure}
+                      onChange={(e) => setPreserveFolderStructure(e.target.checked)}
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-primary cursor-pointer shrink-0"
+                    />
                   </div>
 
                   <div className="space-y-1.5">
@@ -2502,9 +2533,19 @@ function QueueItemRow({
       <div className="flex-1 min-w-0">
         {/* Name & Quick Controls */}
         <div className="flex justify-between items-center mb-1.5">
-          <span className="font-medium text-xs truncate pr-2 text-foreground" title={item.file.name}>
-            {item.file.name}
-          </span>
+          <div className="flex items-center gap-1.5 min-w-0 pr-2">
+            <span className="font-medium text-xs truncate text-foreground" title={item.file.name}>
+              {item.file.name}
+            </span>
+            {item.subpath && (
+              <span 
+                className="text-[10px] text-muted-foreground/80 bg-muted/60 px-1.5 py-0.2 rounded font-mono truncate max-w-[180px] shrink-0" 
+                title={`Destination subfolder: ${item.subpath}`}
+              >
+                /{item.subpath}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1 shrink-0">
             {item.status === 'completed' && onOpenFile && (
               <Button 

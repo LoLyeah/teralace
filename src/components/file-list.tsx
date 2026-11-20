@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Folder,
   FolderOpen,
@@ -41,6 +42,12 @@ interface FileListProps {
   onDownloadFile?: (file: TeraboxFileInfo) => void;
 }
 
+interface ContextMenuState {
+  file: TeraboxFileInfo;
+  style: React.CSSProperties;
+  originClass?: string;
+}
+
 export function FileList({
   files,
   selectedFiles,
@@ -58,15 +65,11 @@ export function FileList({
   const [activeCategory, setActiveCategory] = useState<string>("all");
 
   // Floating Context Menu State
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    file: TeraboxFileInfo;
-  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [copied, setCopied] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close context menu on click outside or Escape
+  // Close context menu on click outside, Escape, window resize, or scroll
   useEffect(() => {
     if (!contextMenu) return;
 
@@ -82,18 +85,73 @@ export function FileList({
       }
     };
 
+    const handleScrollOrResize = () => {
+      setContextMenu(null);
+    };
+
     window.addEventListener("pointerdown", handlePointerDown);
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("scroll", handleScrollOrResize, true);
+    window.addEventListener("resize", handleScrollOrResize);
+
     return () => {
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("scroll", handleScrollOrResize, true);
+      window.removeEventListener("resize", handleScrollOrResize);
     };
   }, [contextMenu]);
 
-  const handleOpenContextMenu = (clientX: number, clientY: number, file: TeraboxFileInfo) => {
-    const x = Math.min(clientX, window.innerWidth - 240);
-    const y = Math.min(clientY, window.innerHeight - 260);
-    setContextMenu({ x, y, file });
+  const handleOpenContextMenu = (
+    clientX: number,
+    clientY: number,
+    file: TeraboxFileInfo,
+    anchorRect?: { top: number; bottom: number; left: number; right: number }
+  ) => {
+    const winWidth = window.innerWidth;
+    const winHeight = window.innerHeight;
+    const estimatedWidth = 220;
+    const estimatedHeight = 220;
+
+    const style: React.CSSProperties = {};
+    let originClass = "origin-top-left";
+
+    if (anchorRect) {
+      // Anchored to the three-dot button: align menu right edge to button right edge
+      if (anchorRect.right >= estimatedWidth + 10) {
+        style.right = `${Math.max(10, winWidth - anchorRect.right)}px`;
+        originClass = "origin-top-right";
+      } else {
+        style.left = `${Math.max(10, anchorRect.left)}px`;
+        originClass = "origin-top-left";
+      }
+
+      // Check vertical clearance: open below if it fits, otherwise open above
+      if (anchorRect.bottom + estimatedHeight + 10 <= winHeight) {
+        style.top = `${anchorRect.bottom + 4}px`;
+      } else {
+        style.bottom = `${Math.max(10, winHeight - anchorRect.top + 4)}px`;
+        originClass = originClass.replace("top", "bottom");
+      }
+    } else {
+      // Right-click context menu: open at cursor with screen boundary clamping
+      if (clientX + estimatedWidth > winWidth - 10) {
+        style.right = `${Math.max(10, winWidth - clientX)}px`;
+        originClass = "origin-top-right";
+      } else {
+        style.left = `${Math.max(10, clientX)}px`;
+        originClass = "origin-top-left";
+      }
+
+      if (clientY + estimatedHeight > winHeight - 10) {
+        style.bottom = `${Math.max(10, winHeight - clientY)}px`;
+        originClass = originClass.replace("top", "bottom");
+      } else {
+        style.top = `${Math.max(10, clientY)}px`;
+      }
+    }
+
+    setContextMenu({ file, style, originClass });
     setCopied(false);
   };
 
@@ -286,12 +344,15 @@ export function FileList({
         )}
       </div>
 
-      {/* Floating Context Menu */}
-      {contextMenu && (
+      {/* Floating Context Menu - Portaled to document.body to avoid parent container clipping and backdrop-filter containing block */}
+      {contextMenu && createPortal(
         <div
           ref={menuRef}
-          style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
-          className="fixed z-50 min-w-[210px] max-w-[280px] p-1.5 rounded-xl border border-border/80 bg-popover/95 backdrop-blur-md text-popover-foreground shadow-2xl animate-in fade-in-0 zoom-in-95 duration-100 select-none text-xs"
+          style={contextMenu.style}
+          className={cn(
+            "fixed z-50 min-w-[210px] max-w-[280px] p-1.5 rounded-xl border border-border/80 bg-popover/95 backdrop-blur-md text-popover-foreground shadow-2xl animate-in fade-in-0 zoom-in-95 duration-100 select-none text-xs",
+            contextMenu.originClass
+          )}
           role="menu"
           aria-label="Item Actions"
           onClick={(e) => e.stopPropagation()}
@@ -453,7 +514,8 @@ export function FileList({
               </button>
             </>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -465,7 +527,12 @@ interface FileItemProps {
   onSelectionChange: (selected: Set<string>) => void;
   onPreview?: (file: TeraboxFileInfo) => void;
   onOpenFolder?: (folder: TeraboxFileInfo) => void;
-  onOpenContextMenu?: (x: number, y: number, file: TeraboxFileInfo) => void;
+  onOpenContextMenu?: (
+    x: number,
+    y: number,
+    file: TeraboxFileInfo,
+    anchorRect?: { top: number; bottom: number; left: number; right: number }
+  ) => void;
 }
 
 function FileItem({
@@ -671,7 +738,12 @@ function FileItem({
         onClick={(e) => {
           e.stopPropagation();
           const rect = e.currentTarget.getBoundingClientRect();
-          onOpenContextMenu?.(rect.left, rect.bottom + 4, file);
+          onOpenContextMenu?.(rect.right, rect.bottom + 4, file, {
+            top: rect.top,
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right
+          });
         }}
         className="p-1 hover:bg-muted text-muted-foreground/60 hover:text-foreground rounded-lg transition-colors shrink-0 opacity-70 group-hover:opacity-100 min-h-[28px] min-w-[28px] flex items-center justify-center"
         title="More options"

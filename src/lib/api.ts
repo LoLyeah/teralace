@@ -119,9 +119,10 @@ export async function isAria2Running(): Promise<boolean> {
 export async function addDownload(
   url: string,
   dir?: string,
-  filename?: string
+  filename?: string,
+  subpath?: string
 ): Promise<string> {
-  return invoke<string>("add_download", { url, dir, filename });
+  return invoke<string>("add_download", { url, dir, filename, subpath });
 }
 
 export async function getDownloadStatus(gid: string): Promise<DownloadInfo> {

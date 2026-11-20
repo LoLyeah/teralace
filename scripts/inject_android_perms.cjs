@@ -163,8 +163,8 @@ if (fs.existsSync(resDir)) {
 
 // 5. Update Android compileSdk, targetSdk, versionCode, and versionName
 const pkgPath = path.resolve(__dirname, '../package.json');
-let appVersion = '1.2.7';
-let computedVersionCode = 10207;
+let appVersion = '1.2.8';
+let computedVersionCode = 10208;
 if (fs.existsSync(pkgPath)) {
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
