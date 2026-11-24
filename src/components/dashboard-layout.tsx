@@ -25,7 +25,7 @@ import {
   getBandwidthLimit, getEndpointStats, pingEndpointHealth, saveApiEndpoints, openDownloadDir, openFile, deleteFileFromDisk, checkForUpdates, saveTeraboxCookie, openTeraboxLogin, exitApp
 } from "../lib/api";
 import { 
-  updateDownloadNotification, notifyDownloadComplete, clearDownloadNotification, ensureNotificationPermission,
+  updateDownloadNotification, clearDownloadNotification, ensureNotificationPermission,
   checkNotificationPermission, openAppNotificationSettings, requestAppNotificationPermission
 } from "../lib/notifications";
 import { readClipboardText } from "../lib/clipboard";
@@ -572,13 +572,7 @@ export function DashboardLayout() {
 
       updateDownloadNotification(activeDownloadingCount, totalSpeed, progress);
     } else {
-      if (prevActiveCountRef.current > 0) {
-        const completedItems = queue.filter(item => item.status === 'completed');
-        const lastFinished = completedItems.length > 0 ? completedItems[completedItems.length - 1].file.name : undefined;
-        notifyDownloadComplete(lastFinished);
-      } else {
-        clearDownloadNotification();
-      }
+      clearDownloadNotification();
     }
     prevActiveCountRef.current = activeDownloadingCount;
   }, [activeDownloadingCount, totalSpeed, queue]);

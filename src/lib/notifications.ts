@@ -8,9 +8,12 @@ import {
   Visibility,
 } from "@tauri-apps/plugin-notification";
 import { formatSpeed } from "./api";
+import { isAndroid } from "./utils";
 
 export const DOWNLOAD_NOTIFICATION_ID = 8888;
 export const COMPLETE_NOTIFICATION_ID = 8889;
+export const ERROR_NOTIFICATION_ID = 8890;
+export const START_NOTIFICATION_ID = 8891;
 export const DOWNLOAD_CHANNEL_ID = "teralace_downloads";
 
 let channelCreated = false;
@@ -135,12 +138,18 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 
 let lastNotificationTime = 0;
 
+/**
+ * Updates ongoing download notification.
+ * On desktop platforms (Windows, macOS, Linux), periodic toasts clutter the OS notification center,
+ * so recurring progress notifications are strictly restricted to Android background service channels.
+ */
 export async function updateDownloadNotification(
   activeCount: number,
   totalSpeed: number,
   progress: number
 ): Promise<void> {
-  if (activeCount <= 0) return;
+  // Desktop platforms do not emit recurring progress toasts; they solely receive lifecycle notifications (start/complete/error)
+  if (activeCount <= 0 || !isAndroid) return;
 
   try {
     const now = Date.now();
@@ -166,6 +175,50 @@ export async function updateDownloadNotification(
     });
   } catch (e) {
     console.warn("Failed to update download notification:", e);
+  }
+}
+
+/**
+ * Emits a notification when a download task starts.
+ */
+export async function notifyDownloadStarted(filename?: string): Promise<void> {
+  try {
+    const granted = await ensureNotificationPermission();
+    if (!granted) return;
+
+    sendNotification({
+      id: START_NOTIFICATION_ID,
+      channelId: DOWNLOAD_CHANNEL_ID,
+      title: "Download Started",
+      body: filename ? `Started downloading ${filename}` : "Download task has started.",
+      ongoing: false,
+      autoCancel: true,
+    });
+  } catch (e) {
+    console.warn("Failed to send start notification:", e);
+  }
+}
+
+/**
+ * Emits a notification when a download task encounters an error.
+ */
+export async function notifyDownloadError(filename?: string, error?: string): Promise<void> {
+  try {
+    const granted = await ensureNotificationPermission();
+    if (!granted) return;
+
+    sendNotification({
+      id: ERROR_NOTIFICATION_ID,
+      channelId: DOWNLOAD_CHANNEL_ID,
+      title: "Download Failed",
+      body: filename
+        ? `${filename} failed: ${error || "Download error"}`
+        : `Download failed: ${error || "Download error"}`,
+      ongoing: false,
+      autoCancel: true,
+    });
+  } catch (e) {
+    console.warn("Failed to send error notification:", e);
   }
 }
 
