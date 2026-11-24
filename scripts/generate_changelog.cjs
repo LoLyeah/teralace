@@ -72,10 +72,27 @@ const categories = {
   others: { title: '📋 Other Changes', items: [] }
 };
 
+const issueThanks = {
+  '4': 'hariimurti',
+};
+
 for (const commit of commits) {
-  const msg = commit.message;
+  let msg = commit.message;
+  let issueUser = null;
+
+  // Auto-link (fixes #N) or (#N) and resolve user thanks
+  msg = msg.replace(/\(fixes #(\d+)\)/gi, (match, num) => {
+    if (issueThanks[num]) issueUser = issueThanks[num];
+    return `(fixes [#${num}](https://github.com/LoLyeah/teralace/issues/${num}))`;
+  });
+  msg = msg.replace(/\(#(\d+)\)/g, (match, num) => {
+    if (issueThanks[num]) issueUser = issueThanks[num];
+    return `(fixes [#${num}](https://github.com/LoLyeah/teralace/issues/${num}))`;
+  });
+
   const link = `([${commit.short}](https://github.com/LoLyeah/teralace/commit/${commit.hash}))`;
-  const entry = `* ${msg} ${link}`;
+  const thanksStr = issueUser ? ` Thanks to ${issueUser}` : '';
+  const entry = `* ${msg} ${link}${thanksStr}`;
 
   if (/^feat(\(.*\))?:/i.test(msg)) {
     categories.features.items.push(entry);
